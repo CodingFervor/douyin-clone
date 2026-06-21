@@ -1,0 +1,14 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body, #app { height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+  background: #000;
+  color: #fff;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+ul, li { list-style: none; }
+a { text-decoration: none; color: inherit; }
+img { display: block; }
+.dy-pink { color: #fe2c55; }
+.dy-cyan { color: #25f4ee; }
