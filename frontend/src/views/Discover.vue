@@ -5,13 +5,16 @@ import { showToast } from 'vant'
 import { getFeed } from '../api'
 
 const router = useRouter()
+const allVideos = ref([])
 const videos = ref([])
 const keyword = ref('')
 const loading = ref(true)
 
 onMounted(async () => {
   try {
-    videos.value = await getFeed(30)
+    const data = await getFeed(30)
+    allVideos.value = data
+    videos.value = data
   } catch (e) {
     showToast('加载失败')
   } finally {
@@ -20,13 +23,16 @@ onMounted(async () => {
 })
 
 function doSearch() {
-  if (!keyword.value.trim()) return
+  const kw = keyword.value.trim()
+  if (!kw) {
+    // empty search restores the full list
+    videos.value = allVideos.value
+    return
+  }
   videos.value = allVideos.value.filter((v) =>
-    v.title.includes(keyword.value) || v.tags.includes(keyword.value) || v.author_name.includes(keyword.value)
+    v.title.includes(kw) || (v.tags || '').includes(kw) || (v.author_name || '').includes(kw)
   )
 }
-const allVideos = ref([])
-onMounted(async () => { allVideos.value = videos.value })
 
 function fmtCount(n) {
   if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
