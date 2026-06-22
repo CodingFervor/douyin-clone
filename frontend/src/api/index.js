@@ -61,3 +61,8 @@ export const uploadVideoFile = (formData, onProgress) =>
 export const getNotifications = (type) => http.get('/notifications', { params: type ? { type } : {} }).then((r) => r.data.data)
 export const getNotificationCounts = () => http.get('/notifications/counts').then((r) => r.data.counts)
 export const markNotificationsRead = () => http.post('/notifications/read-all').then((r) => r.data)
+
+// ---- Live streaming ----
+export const getLiveList = () => http.get('/live').then((r) => r.data.data)
+export const getLiveRoom = (id) => http.get(`/live/${id}`).then((r) => r.data)
+export const likeLive = (id) => http.post(`/live/${id}/like`).then((r) => r.data)

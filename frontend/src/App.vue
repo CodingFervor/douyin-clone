@@ -7,6 +7,7 @@ const showTabbar = computed(() => route.meta.tab !== undefined)
 const active = computed(() => route.meta.tab ?? 0)
 const tabs = [
   { name: 'feed', icon: 'home-o', label: '首页' },
+  { name: 'live', icon: 'video-o', label: '直播' },
   { name: 'discover', icon: 'search', label: '发现' },
   { name: 'upload', icon: 'add-o', label: '发布' },
   { name: 'messages', icon: 'chat-o', label: '消息' },

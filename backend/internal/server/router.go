@@ -26,6 +26,11 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 		api.POST("/auth/login", h.Login)
 		api.POST("/auth/register", h.Register)
 
+		// Live streaming (public)
+		api.GET("/live", h.ListLive)
+		api.GET("/live/:id", h.GetLive)
+		api.POST("/live/:id/like", h.LikeLive)
+
 		// Public feed & content (identifies user if token present)
 		api.GET("/videos/feed", h.Feed)
 		api.GET("/videos/recommend", h.RecommendFeed)

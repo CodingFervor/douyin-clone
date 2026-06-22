@@ -23,6 +23,7 @@ type Handler struct {
 	Favorite  *repository.FavoriteRepo
 	Recommend *repository.RecommendRepo
 	Notify    *repository.NotifyRepo
+	Live      *repository.LiveRepo
 	jwtKey    []byte
 }
 

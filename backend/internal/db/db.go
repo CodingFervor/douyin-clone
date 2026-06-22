@@ -131,6 +131,33 @@ func createTables() error {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id)`,
+		// Live rooms: a mock live-streaming room (no real RTMP; serves an HLS sample).
+		`CREATE TABLE IF NOT EXISTS live_rooms (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			host_id INTEGER NOT NULL,
+			host_name TEXT NOT NULL DEFAULT '',
+			host_avatar TEXT NOT NULL DEFAULT '',
+			title TEXT NOT NULL DEFAULT '',
+			cover_url TEXT NOT NULL DEFAULT '',
+			stream_url TEXT NOT NULL DEFAULT '',
+			viewers INTEGER NOT NULL DEFAULT 0,
+			likes INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'live',
+			category TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_live_status ON live_rooms(status)`,
+		// Live products: items pinned in a live room (小黄车).
+		`CREATE TABLE IF NOT EXISTS live_products (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			live_id INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			price REAL NOT NULL,
+			image TEXT NOT NULL DEFAULT '',
+			sales INTEGER NOT NULL DEFAULT 0,
+			sort_order INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_live_products_live ON live_products(live_id)`,
 	}
 	for _, s := range stmts {
 		if _, err := DB.Exec(s); err != nil {

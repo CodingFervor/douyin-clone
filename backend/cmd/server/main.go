@@ -41,6 +41,10 @@ func main() {
 		repository.NewRecommendRepo(db.DB),
 		repository.NewNotifyRepo(db.DB),
 	)
+	h.SetLive(repository.NewLiveRepo(db.DB))
+
+	// Seed live rooms + products.
+	repository.NewLiveRepo(db.DB).SeedLive()
 
 	// Ensure the uploads directory exists for the static file server.
 	_ = os.MkdirAll("data/uploads", 0o755)
