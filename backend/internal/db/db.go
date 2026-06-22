@@ -106,6 +106,31 @@ func createTables() error {
 			UNIQUE(user_id, video_id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id)`,
+		// Play records: track how much of each video a user watched (completion ratio),
+		// used by the recommendation engine.
+		`CREATE TABLE IF NOT EXISTS play_records (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			video_id INTEGER NOT NULL,
+			completion REAL NOT NULL DEFAULT 0,  -- 0.0 ~ 1.0 ratio watched
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id, video_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_plays_user ON play_records(user_id)`,
+		// Notifications: like/comment/follow/system events directed at a user.
+		`CREATE TABLE IF NOT EXISTS notifications (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,            -- recipient
+			actor_id INTEGER NOT NULL,           -- who performed the action
+			actor_name TEXT NOT NULL DEFAULT '',
+			actor_avatar TEXT NOT NULL DEFAULT '',
+			type TEXT NOT NULL,                  -- like, comment, follow, system
+			video_id INTEGER NOT NULL DEFAULT 0,
+			content TEXT NOT NULL DEFAULT '',
+			is_read INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id)`,
 	}
 	for _, s := range stmts {
 		if _, err := DB.Exec(s); err != nil {

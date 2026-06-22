@@ -1,8 +1,8 @@
 <script setup>
-import { ref, onMounted, onActivated, nextTick } from 'vue'
+import { ref, onMounted, onActivated, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { getFeed, toggleLike, toggleFavorite, toggleFollow, getComments, createComment } from '../api'
+import { getFeed, getRecommendFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment } from '../api'
 
 const router = useRouter()
 const videos = ref([])
@@ -16,13 +16,19 @@ const currentVideoId = ref(null)
 const dragging = ref(false)
 const startY = ref(0)
 
-onMounted(loadFeed)
-onActivated(() => { if (!videos.value.length) loadFeed() })
+onMounted(() => loadFeed('recommend'))
+onActivated(() => { if (!videos.value.length) loadFeed(activeTab.value) })
 
-async function loadFeed() {
+// Reload the feed when the user switches between 关注/推荐.
+watch(activeTab, (tab) => loadFeed(tab))
+
+async function loadFeed(tab) {
   loading.value = true
   try {
-    videos.value = await getFeed(20)
+    // "recommend" uses the collaborative-filtering engine; "follow" shows the
+    // latest feed as a stand-in (follow-specific filtering is a future step).
+    const data = tab === 'follow' ? await getFeed(20) : await getRecommendFeed(20)
+    videos.value = data.length ? data : await getFeed(20)
     index.value = 0
     await nextTick()
     playCurrent()
@@ -34,14 +40,27 @@ async function loadFeed() {
 }
 
 function playCurrent() {
-  // Pause all videos, play the current one.
+  // Pause all videos, play the current one; report completion for the previous.
   document.querySelectorAll('.feed-video').forEach((v, i) => {
     if (i === index.value) {
       v.play().catch(() => {})
+      // Report a completion ratio for the now-playing video as implicit feedback.
+      const vid = videos.value[i]
+      if (vid) {
+        // Report ~0.5 completion when it starts, and the 'ended' listener below
+        // upgrades it to 1.0 on full completion.
+        reportPlay(vid.id, 0.5)
+        v.onended = () => reportPlay(vid.id, 1.0)
+      }
     } else {
       v.pause()
     }
   })
+}
+
+function reportPlay(videoID, completion) {
+  // Best-effort; ignore failures (user may not be logged in).
+  recordPlay(videoID, completion).catch(() => {})
 }
 
 // togglePlay pauses/plays the tapped video (tap = pause toggle).

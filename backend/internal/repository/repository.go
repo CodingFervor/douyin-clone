@@ -186,6 +186,19 @@ func (r *VideoRepo) Create(v *model.VideoInput, authorID int64) (int64, error) {
 	return res.LastInsertId()
 }
 
+// CreateRaw inserts a video from explicit fields (used by the multipart upload
+// handler which receives form fields rather than a JSON DTO).
+func (r *VideoRepo) CreateRaw(authorID int64, title, description, videoURL, coverURL, tags, music string) (int64, error) {
+	res, err := r.db.Exec(
+		`INSERT INTO videos (author_id, title, description, video_url, cover_url, tags, music)
+		 VALUES (?,?,?,?,?,?,?)`,
+		authorID, title, description, videoURL, coverURL, tags, defaultStr(music, "原声"))
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
 func (r *VideoRepo) Delete(id, authorID int64) error {
 	_, err := r.db.Exec(`DELETE FROM videos WHERE id=? AND author_id=?`, id, authorID)
 	return err

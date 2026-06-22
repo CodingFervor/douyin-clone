@@ -37,3 +37,20 @@ export const toggleFollow = (id) => http.post(`/users/${id}/follow`).then((r) =>
 export const getFollowers = (id) => http.get(`/users/${id}/followers`).then((r) => r.data.data)
 export const getFollowing = (id) => http.get(`/users/${id}/following`).then((r) => r.data.data)
 export const uploadVideo = (payload) => http.post('/admin/videos', payload).then((r) => r.data)
+
+// ---- Recommendations ----
+export const getRecommendFeed = (limit = 20) => http.get('/videos/recommend', { params: { limit } }).then((r) => r.data.data)
+export const recordPlay = (id, completion) => http.post(`/videos/${id}/play`, { completion }).then((r) => r.data)
+
+// ---- File upload (multipart) ----
+export const uploadVideoFile = (formData, onProgress) =>
+  http.post('/admin/videos/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: onProgress,
+    timeout: 120000,
+  }).then((r) => r.data)
+
+// ---- Notifications ----
+export const getNotifications = (type) => http.get('/notifications', { params: type ? { type } : {} }).then((r) => r.data.data)
+export const getNotificationCounts = () => http.get('/notifications/counts').then((r) => r.data.counts)
+export const markNotificationsRead = () => http.post('/notifications/read-all').then((r) => r.data)

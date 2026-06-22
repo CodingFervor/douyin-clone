@@ -38,7 +38,12 @@ func main() {
 		repository.NewCommentRepo(db.DB),
 		repository.NewFollowRepo(db.DB),
 		repository.NewFavoriteRepo(db.DB),
+		repository.NewRecommendRepo(db.DB),
+		repository.NewNotifyRepo(db.DB),
 	)
+
+	// Ensure the uploads directory exists for the static file server.
+	_ = os.MkdirAll("data/uploads", 0o755)
 
 	r := server.New(h, cfg.AllowedOrigins)
 	addr := ":" + strconv.Itoa(cfg.Port)

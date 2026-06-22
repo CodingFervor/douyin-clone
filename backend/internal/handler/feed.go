@@ -75,6 +75,14 @@ func (h *Handler) ToggleLike(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "操作失败"})
 		return
 	}
+	// Notify the video author when a like is added.
+	if liked && h.Notify != nil {
+		v, _ := h.Video.Get(id, 0)
+		actor, _ := h.User.Get(uid)
+		if v != nil && actor != nil {
+			_ = h.Notify.Notify(v.AuthorID, uid, actor.Nickname, actor.Avatar, "like", id, "赞了你的视频")
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"likes": total, "liked": liked})
 }
 
@@ -151,6 +159,14 @@ func (h *Handler) CreateComment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "评论失败"})
 		return
 	}
+	// Notify the video author about the new comment.
+	if h.Notify != nil {
+		v, _ := h.Video.Get(req.VideoID, 0)
+		actor, _ := h.User.Get(uid)
+		if v != nil && actor != nil {
+			_ = h.Notify.Notify(v.AuthorID, uid, actor.Nickname, actor.Avatar, "comment", req.VideoID, "评论了你的视频: "+truncateStr(req.Content, 40))
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"data": cm})
 }
 
@@ -178,6 +194,13 @@ func (h *Handler) ToggleFollow(c *gin.Context) {
 	}
 	_ = h.User.UpdateFollowingCount(uid, delta)
 	_ = h.User.UpdateFollowersCount(targetID, delta)
+	// Notify the target user when followed.
+	if following && h.Notify != nil {
+		actor, _ := h.User.Get(uid)
+		if actor != nil {
+			_ = h.Notify.Notify(targetID, uid, actor.Nickname, actor.Avatar, "follow", 0, "关注了你")
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"following": following})
 }
 
@@ -248,4 +271,13 @@ func (h *Handler) DeleteVideo(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "已删除"})
+}
+
+// truncateStr caps s to n runes for short notification previews.
+func truncateStr(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }

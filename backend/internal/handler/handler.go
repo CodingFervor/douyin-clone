@@ -15,18 +15,21 @@ import (
 )
 
 type Handler struct {
-	User     *repository.UserRepo
-	Video    *repository.VideoRepo
-	Like     *repository.LikeRepo
-	Comment  *repository.CommentRepo
-	Follow   *repository.FollowRepo
-	Favorite *repository.FavoriteRepo
-	jwtKey   []byte
+	User      *repository.UserRepo
+	Video     *repository.VideoRepo
+	Like      *repository.LikeRepo
+	Comment   *repository.CommentRepo
+	Follow    *repository.FollowRepo
+	Favorite  *repository.FavoriteRepo
+	Recommend *repository.RecommendRepo
+	Notify    *repository.NotifyRepo
+	jwtKey    []byte
 }
 
 func New(jwtSecret string, u *repository.UserRepo, v *repository.VideoRepo, l *repository.LikeRepo,
-	c *repository.CommentRepo, f *repository.FollowRepo, fv *repository.FavoriteRepo) *Handler {
-	return &Handler{User: u, Video: v, Like: l, Comment: c, Follow: f, Favorite: fv, jwtKey: []byte(jwtSecret)}
+	c *repository.CommentRepo, f *repository.FollowRepo, fv *repository.FavoriteRepo,
+	rec *repository.RecommendRepo, n *repository.NotifyRepo) *Handler {
+	return &Handler{User: u, Video: v, Like: l, Comment: c, Follow: f, Favorite: fv, Recommend: rec, Notify: n, jwtKey: []byte(jwtSecret)}
 }
 
 // ---- JWT ----

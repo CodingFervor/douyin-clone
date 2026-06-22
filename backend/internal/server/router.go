@@ -15,6 +15,9 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 
 	r.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 
+	// Serve uploaded video files from the local data/uploads directory.
+	r.Static("/uploads", "data/uploads")
+
 	api := r.Group("/api/v1")
 	{
 		// Auth (public)
@@ -23,6 +26,7 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 
 		// Public feed & content (identifies user if token present)
 		api.GET("/videos/feed", h.Feed)
+		api.GET("/videos/recommend", h.RecommendFeed)
 		api.GET("/videos/:id", h.GetVideo)
 		api.GET("/videos/:id/comments", h.ListComments)
 		api.GET("/users/:id", h.GetUser)
@@ -38,6 +42,7 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 
 			auth.POST("/videos/:id/like", h.ToggleLike)
 			auth.POST("/videos/:id/favorite", h.ToggleFavorite)
+			auth.POST("/videos/:id/play", h.RecordPlay)
 			auth.GET("/users/me/favorites", h.FavoriteVideos)
 
 			auth.POST("/comments", h.CreateComment)
@@ -46,7 +51,13 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 
 			// Upload / manage own videos
 			auth.POST("/admin/videos", h.UploadVideo)
+			auth.POST("/admin/videos/upload", h.UploadVideoFile)
 			auth.DELETE("/admin/videos/:id", h.DeleteVideo)
+
+			// Notifications
+			auth.GET("/notifications", h.ListNotifications)
+			auth.GET("/notifications/counts", h.NotificationCounts)
+			auth.POST("/notifications/read-all", h.MarkNotificationsRead)
 		}
 	}
 	return r
