@@ -38,6 +38,13 @@ export const getFollowers = (id) => http.get(`/users/${id}/followers`).then((r) 
 export const getFollowing = (id) => http.get(`/users/${id}/following`).then((r) => r.data.data)
 export const uploadVideo = (payload) => http.post('/admin/videos', payload).then((r) => r.data)
 
+// ---- Image upload (multipart) ----
+export const uploadImage = (file) => {
+  const fd = new FormData()
+  fd.append('file', file)
+  return http.post('/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000 }).then((r) => r.data)
+}
+
 // ---- Recommendations ----
 export const getRecommendFeed = (limit = 20) => http.get('/videos/recommend', { params: { limit } }).then((r) => r.data.data)
 export const recordPlay = (id, completion) => http.post(`/videos/${id}/play`, { completion }).then((r) => r.data)

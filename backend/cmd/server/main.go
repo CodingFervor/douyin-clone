@@ -44,6 +44,7 @@ func main() {
 
 	// Ensure the uploads directory exists for the static file server.
 	_ = os.MkdirAll("data/uploads", 0o755)
+	_ = os.MkdirAll("data/images", 0o755)
 
 	r := server.New(h, cfg.AllowedOrigins)
 	addr := ":" + strconv.Itoa(cfg.Port)

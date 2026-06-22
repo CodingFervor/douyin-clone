@@ -2,7 +2,21 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showSuccessToast } from 'vant'
-import { uploadVideo, uploadVideoFile } from '../api'
+import { uploadVideo, uploadVideoFile, uploadImage } from '../api'
+
+const uploadingCover = ref(false)
+async function onUploadCover(item) {
+  uploadingCover.value = true
+  try {
+    const res = await uploadImage(item.file)
+    form.value.cover_url = res.url
+    showToast('封面已上传')
+  } catch (e) {
+    showToast(e.response?.data?.error || '上传失败')
+  } finally {
+    uploadingCover.value = false
+  }
+}
 
 const router = useRouter()
 const mode = ref('file')
@@ -76,7 +90,14 @@ async function submit() {
     <van-cell-group inset style="margin-top: 12px; background: #161616">
       <van-field v-model="form.title" label="标题" placeholder="给作品起个标题" label-width="80" />
       <van-field v-model="form.description" type="textarea" label="描述" placeholder="作品描述" rows="2" label-width="80" />
-      <van-field v-model="form.cover_url" label="封面地址" placeholder="https://..." label-width="80" />
+      <van-field label="封面图" :loading="uploadingCover">
+        <template #input>
+          <van-uploader :after-read="onUploadCover" accept="image/*" max-count="1" :preview-image="false">
+            <van-button icon="photo-o" size="small" round color="#fe2c55">上传封面</van-button>
+          </van-uploader>
+          <van-image v-if="form.cover_url" width="50" height="80" radius="4" :src="form.cover_url" fit="cover" style="margin-left: 8px" />
+        </template>
+      </van-field>
       <van-field v-model="form.tags" label="话题" placeholder="旅行,美食 (逗号分隔)" label-width="80" />
       <van-field v-model="form.music" label="音乐" placeholder="原声" label-width="80" />
     </van-cell-group>

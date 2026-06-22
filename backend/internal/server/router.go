@@ -17,6 +17,8 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 
 	// Serve uploaded video files from the local data/uploads directory.
 	r.Static("/uploads", "data/uploads")
+	// Serve uploaded images from the local data/images directory.
+	r.Static("/images", "data/images")
 
 	api := r.Group("/api/v1")
 	{
@@ -53,6 +55,9 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 			auth.POST("/admin/videos", h.UploadVideo)
 			auth.POST("/admin/videos/upload", h.UploadVideoFile)
 			auth.DELETE("/admin/videos/:id", h.DeleteVideo)
+
+			// Image upload (video covers, avatars)
+			auth.POST("/upload", h.UploadImage)
 
 			// Notifications
 			auth.GET("/notifications", h.ListNotifications)
