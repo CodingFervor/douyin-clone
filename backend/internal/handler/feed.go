@@ -130,7 +130,8 @@ func (h *Handler) ListComments(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
 		return
 	}
-	comments, err := h.Comment.ListByVideo(id, 100)
+	uid, _ := h.currentUserID(c, true)
+	comments, err := h.Comment.ListByVideoAnnotated(id, 100, uid)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "加载失败"})
 		return

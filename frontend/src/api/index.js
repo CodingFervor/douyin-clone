@@ -66,3 +66,13 @@ export const markNotificationsRead = () => http.post('/notifications/read-all').
 export const getLiveList = () => http.get('/live').then((r) => r.data.data)
 export const getLiveRoom = (id) => http.get(`/live/${id}`).then((r) => r.data)
 export const likeLive = (id) => http.post(`/live/${id}/like`).then((r) => r.data)
+
+// ---- Search (FTS5) ----
+export const searchVideos = (q) => http.get('/videos/search', { params: { q } }).then((r) => r.data.data)
+export const searchSuggest = (q) => http.get('/videos/search/suggest', { params: { q } }).then((r) => r.data.data)
+
+// ---- Comment likes ----
+export const likeComment = (id) => http.post(`/comments/${id}/like`).then((r) => r.data)
+
+// ---- Profile ----
+export const updateProfile = (payload) => http.put('/auth/profile', payload).then((r) => r.data.user)

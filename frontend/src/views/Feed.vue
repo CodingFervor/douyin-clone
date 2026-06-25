@@ -2,7 +2,7 @@
 import { ref, onMounted, onActivated, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { getFeed, getRecommendFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment } from '../api'
+import { getFeed, getRecommendFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment } from '../api'
 
 const router = useRouter()
 const videos = ref([])
@@ -141,6 +141,16 @@ async function sendComment() {
     showToast('请先登录')
   }
 }
+async function doCommentLike(c) {
+  try {
+    const res = await likeComment(c.id)
+    c.liked = res.liked
+    c.likes += res.liked ? 1 : -1
+  } catch (e) {
+    showToast('请先登录')
+    router.push('/login')
+  }
+}
 
 function fmtCount(n) {
   if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
@@ -226,7 +236,9 @@ function fmtCount(n) {
               <div class="cp-user">{{ c.username }}</div>
               <div class="cp-content">{{ c.content }}</div>
             </div>
-            <div class="cp-like"><van-icon name="like-o" size="16" /><span>{{ c.likes }}</span></div>
+            <div class="cp-like" :class="{ active: c.liked }" @click="doCommentLike(c)">
+              <van-icon :name="c.liked ? 'like' : 'like-o'" size="16" :color="c.liked ? '#fe2c55' : '#999'" /><span>{{ c.likes }}</span>
+            </div>
           </div>
           <div v-if="!commentList.length" class="cp-empty">暂无评论，来说点什么吧</div>
         </div>
@@ -274,7 +286,8 @@ function fmtCount(n) {
 .cp-body { flex: 1; }
 .cp-user { color: #888; font-size: 13px; }
 .cp-content { color: #fff; font-size: 14px; margin-top: 3px; }
-.cp-like { display: flex; flex-direction: column; align-items: center; color: #888; font-size: 11px; }
+.cp-like { display: flex; flex-direction: column; align-items: center; color: #888; font-size: 11px; cursor: pointer; }
+.cp-like.active { color: #fe2c55; }
 .cp-empty { text-align: center; color: #666; padding: 40px; }
 .cp-input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #222; }
 .cp-field { background: #222; border-radius: 18px; }

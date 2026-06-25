@@ -2,13 +2,14 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { getFeed } from '../api'
+import { getFeed, searchVideos } from '../api'
 
 const router = useRouter()
 const allVideos = ref([])
 const videos = ref([])
 const keyword = ref('')
 const loading = ref(true)
+const searching = ref(false)
 
 onMounted(async () => {
   try {
@@ -22,16 +23,24 @@ onMounted(async () => {
   }
 })
 
-function doSearch() {
+async function doSearch() {
   const kw = keyword.value.trim()
   if (!kw) {
     // empty search restores the full list
     videos.value = allVideos.value
     return
   }
-  videos.value = allVideos.value.filter((v) =>
-    v.title.includes(kw) || (v.tags || '').includes(kw) || (v.author_name || '').includes(kw)
-  )
+  searching.value = true
+  try {
+    videos.value = await searchVideos(kw)
+  } catch (e) {
+    // fall back to client-side filter if the search endpoint fails
+    videos.value = allVideos.value.filter((v) =>
+      v.title.includes(kw) || (v.tags || '').includes(kw) || (v.author_name || '').includes(kw)
+    )
+  } finally {
+    searching.value = false
+  }
 }
 
 function fmtCount(n) {

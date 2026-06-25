@@ -45,6 +45,7 @@ type Comment struct {
 	Avatar    string    `json:"avatar"`
 	Content   string    `json:"content"`
 	Likes     int       `json:"likes"`
+	Liked     bool      `json:"liked"`
 	ParentID  int64     `json:"parent_id"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -76,4 +77,10 @@ type VideoInput struct {
 	Duration    int    `json:"duration"`
 	Tags        string `json:"tags"`
 	Music       string `json:"music"`
+}
+
+type ProfileInput struct {
+	Nickname string `json:"nickname"`
+	Avatar   string `json:"avatar"`
+	Bio      string `json:"bio"`
 }

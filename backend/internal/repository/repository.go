@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/CodingFervor/douyin-clone/backend/internal/model"
@@ -66,6 +67,21 @@ func (r *UserRepo) UpdateFollowingCount(id int64, delta int) error {
 func (r *UserRepo) UpdateFollowersCount(id int64, delta int) error {
 	_, err := r.db.Exec(`UPDATE users SET followers_count = MAX(0, followers_count + ?) WHERE id=?`, delta, id)
 	return err
+}
+
+// UpdateProfile edits a user's mutable profile fields (nickname/avatar/bio).
+func (r *UserRepo) UpdateProfile(u *model.User) error {
+	res, err := r.db.Exec(
+		`UPDATE users SET nickname=?, avatar=?, bio=? WHERE id=?`,
+		u.Nickname, u.Avatar, u.Bio, u.ID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // ===================== Video =====================
@@ -208,6 +224,76 @@ func (r *VideoRepo) IncrementPlays(id int64) {
 	_, _ = r.db.Exec(`UPDATE videos SET plays = plays + 1 WHERE id=?`, id)
 }
 
+// Search uses FTS5 to find videos matching the query across title/description/
+// tags/music, returning full video rows joined with author info. It falls back
+// to LIKE matching if FTS5 is unavailable.
+func (r *VideoRepo) Search(q string, limit int, currentUserID int64) ([]model.Video, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return []model.Video{}, nil
+	}
+	// Build a prefix-MATCH expression per token.
+	tokens := strings.Fields(q)
+	parts := make([]string, 0, len(tokens))
+	for _, t := range tokens {
+		parts = append(parts, t+"*")
+	}
+	matchExpr := strings.Join(parts, " ")
+	rows, err := r.db.Query(
+		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
+		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
+		        v.shares, v.tags, v.music, v.created_at
+		 FROM videos_fts f JOIN videos v ON v.id = f.rowid JOIN users u ON u.id = v.author_id
+		 WHERE videos_fts MATCH ? ORDER BY v.likes DESC LIMIT ?`, matchExpr, limit)
+	if err != nil {
+		// FTS5 unavailable — LIKE fallback.
+		rows, err = r.db.Query(
+			`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
+			        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
+			        v.shares, v.tags, v.music, v.created_at
+			 FROM videos v JOIN users u ON u.id = v.author_id
+			 WHERE v.title LIKE ? OR v.description LIKE ? OR v.tags LIKE ?
+			 ORDER BY v.likes DESC LIMIT ?`, "%"+q+"%", "%"+q+"%", "%"+q+"%", limit)
+		if err != nil {
+			return nil, err
+		}
+	}
+	defer rows.Close()
+	out := []model.Video{}
+	for rows.Next() {
+		var v model.Video
+		if err := scanVideo(rows, &v); err == nil {
+			out = append(out, v)
+		}
+	}
+	r.annotateUserState(out, currentUserID)
+	return out, nil
+}
+
+// Suggest returns title prefixes for search auto-complete.
+func (r *VideoRepo) Suggest(prefix string, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	rows, err := r.db.Query(
+		`SELECT DISTINCT title FROM videos WHERE title LIKE ? LIMIT ?`, prefix+"%", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var t string
+		if rows.Scan(&t) == nil {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
 func scanVideo(rows *sql.Rows, v *model.Video) error {
 	return rows.Scan(&v.ID, &v.AuthorID, &v.AuthorName, &v.AuthorAvatar, &v.Title, &v.Description,
 		&v.VideoURL, &v.CoverURL, &v.Duration, &v.Plays, &v.Likes, &v.CommentsCount, &v.Shares, &v.Tags, &v.Music, &v.CreatedAt)
@@ -312,6 +398,65 @@ func (r *CommentRepo) Count() (int, error) {
 	var n int
 	err := r.db.QueryRow(`SELECT COUNT(*) FROM comments`).Scan(&n)
 	return n, err
+}
+
+// ListByVideoAnnotated is like ListByVideo but also marks which comments the
+// given user has liked.
+func (r *CommentRepo) ListByVideoAnnotated(videoID int64, limit int, userID int64) ([]model.Comment, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	rows, err := r.db.Query(
+		`SELECT id, video_id, user_id, username, avatar, content, likes, parent_id, created_at
+		 FROM comments WHERE video_id=? ORDER BY likes DESC, id DESC LIMIT ?`, videoID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.Comment{}
+	for rows.Next() {
+		var c model.Comment
+		if err := rows.Scan(&c.ID, &c.VideoID, &c.UserID, &c.Username, &c.Avatar, &c.Content, &c.Likes, &c.ParentID, &c.CreatedAt); err == nil {
+			out = append(out, c)
+		}
+	}
+	if userID > 0 {
+		for i := range out {
+			var liked int
+			_ = r.db.QueryRow(`SELECT 1 FROM comment_likes WHERE user_id=? AND comment_id=?`, userID, out[i].ID).Scan(&liked)
+			out[i].Liked = liked == 1
+		}
+	}
+	return out, nil
+}
+
+// ToggleLike adds or removes a comment like; returns true if now liked.
+func (r *CommentRepo) ToggleLike(userID, commentID int64) (bool, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`DELETE FROM comment_likes WHERE user_id=? AND comment_id=?`, userID, commentID)
+	if err != nil {
+		return false, err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		if _, err := tx.Exec(`UPDATE comments SET likes = MAX(0, likes - 1) WHERE id=?`, commentID); err != nil {
+			return false, err
+		}
+		return false, tx.Commit()
+	}
+	if _, err := tx.Exec(`INSERT INTO comment_likes (user_id, comment_id) VALUES (?,?)`, userID, commentID); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(`UPDATE comments SET likes = likes + 1 WHERE id=?`, commentID); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // ===================== Follows =====================

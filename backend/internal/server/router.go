@@ -34,6 +34,8 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 		// Public feed & content (identifies user if token present)
 		api.GET("/videos/feed", h.Feed)
 		api.GET("/videos/recommend", h.RecommendFeed)
+		api.GET("/videos/search", h.SearchVideos)
+		api.GET("/videos/search/suggest", h.SearchSuggest)
 		api.GET("/videos/:id", h.GetVideo)
 		api.GET("/videos/:id/comments", h.ListComments)
 		api.GET("/users/:id", h.GetUser)
@@ -46,6 +48,7 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 		auth.Use(authMiddleware())
 		{
 			auth.GET("/auth/profile", h.Profile)
+			auth.PUT("/auth/profile", h.UpdateProfile)
 
 			auth.POST("/videos/:id/like", h.ToggleLike)
 			auth.POST("/videos/:id/favorite", h.ToggleFavorite)
@@ -53,6 +56,7 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 			auth.GET("/users/me/favorites", h.FavoriteVideos)
 
 			auth.POST("/comments", h.CreateComment)
+			auth.POST("/comments/:id/like", h.LikeComment)
 
 			auth.POST("/users/:id/follow", h.ToggleFollow)
 

@@ -158,11 +158,44 @@ func createTables() error {
 			sort_order INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_live_products_live ON live_products(live_id)`,
+		// Comment likes: who liked which comment (enables per-user like toggle).
+		`CREATE TABLE IF NOT EXISTS comment_likes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			comment_id INTEGER NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id, comment_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_comment_likes_comment ON comment_likes(comment_id)`,
+		// FTS5 full-text search over videos (title/description/tags/music).
+		`CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(title, description, tags, music, content='videos', content_rowid='id')`,
+		`CREATE TRIGGER IF NOT EXISTS videos_ai AFTER INSERT ON videos BEGIN
+			INSERT INTO videos_fts(rowid, title, description, tags, music)
+			VALUES (new.id, new.title, new.description, new.tags, new.music);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS videos_ad AFTER DELETE ON videos BEGIN
+			INSERT INTO videos_fts(videos_fts, rowid, title, description, tags, music)
+			VALUES ('delete', old.id, old.title, old.description, old.tags, old.music);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS videos_au AFTER UPDATE ON videos BEGIN
+			INSERT INTO videos_fts(videos_fts, rowid, title, description, tags, music)
+			VALUES ('delete', old.id, old.title, old.description, old.tags, old.music);
+			INSERT INTO videos_fts(rowid, title, description, tags, music)
+			VALUES (new.id, new.title, new.description, new.tags, new.music);
+		END`,
 	}
 	for _, s := range stmts {
 		if _, err := DB.Exec(s); err != nil {
 			return fmt.Errorf("exec: %w", err)
 		}
 	}
+	return migrate()
+}
+
+// migrate applies additive post-create steps. Here it rebuilds the videos_fts
+// index from existing rows so search works on a freshly seeded database.
+func migrate() error {
+	// 'rebuild' repopulates the external-content FTS table from its source.
+	_, _ = DB.Exec(`INSERT INTO videos_fts(videos_fts) VALUES ('rebuild')`)
 	return nil
 }

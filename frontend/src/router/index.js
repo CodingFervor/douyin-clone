@@ -11,6 +11,7 @@ const routes = [
   { path: '/mine', name: 'mine', component: () => import('../views/Mine.vue'), meta: { tab: 5 } },
   { path: '/login', name: 'login', component: () => import('../views/Login.vue') },
   { path: '/user/:id', name: 'user', component: () => import('../views/UserProfile.vue') },
+  { path: '/profile', name: 'profile', component: () => import('../views/EditProfile.vue'), meta: { auth: true } },
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })
