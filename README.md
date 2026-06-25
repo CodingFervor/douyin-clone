@@ -6,12 +6,17 @@ A Douyin (抖音/TikTok) clone — a full-screen short-video app with swipe-to-s
 
 ### Features
 - **Immersive full-screen video feed** — vertical swipe (touch up/down) to switch videos, tap to pause/play
+- **Recommendation engine** — collaborative filtering (users who share your likes) + tag affinity + cold-start popularity fallback; play-completion ratio as implicit feedback
 - **Right action rail** — like (toggle with animation), comment, favorite (收藏), share, author avatar + follow
 - **Comments** — bottom-sheet comment panel, post comments in real time
+- **Notification system** — like/comment/follow notifications with per-type tabs + unread badges + mark-all-read
+- **Live streaming (直播)** — live room grid with viewer counts, full-screen HLS player, host info + follow, like with floating-heart animation
+- **Shopping cart (小黄车)** — pinned products per live room, product teaser bar, cart popup with price/sales/抢购
 - **Follow system** — follow/unfollow authors, followers & following lists
 - **User profiles** — avatar, bio, following/followers/likes stats, works & liked tabs
 - **Discover** — search videos by title/tags/author, trending topic tags
-- **Upload** — post videos by URL (demo mode)
+- **Video upload** — real file upload (multipart) with progress bar + cover image upload, or URL paste
+- **Image upload** — real multipart upload for video covers
 - **Auth** — register/login with JWT
 - **Black-theme UI** — authentic Douyin dark aesthetic with cyan/pink accents
 
@@ -91,7 +96,11 @@ MIT — see [LICENSE](LICENSE).
 - **关注系统** — 关注/取关作者，粉丝 & 关注列表
 - **个人主页** — 头像、简介、关注/粉丝/获赞数、作品 & 喜欢页签
 - **发现** — 按标题/标签/作者搜索视频，热门话题
-- **发布** — 通过 URL 发布视频（演示模式）
+- **直播** — 直播间网格（观看人数脉冲徽章）、全屏 HLS 播放器、主播信息 + 关注、点赞飘心动画
+- **小黄车** — 直播间挂载商品、底部商品预览条、购物车弹层（商品/价格/已售/抢购）
+- **消息通知** — 点赞/评论/关注通知，分类 tab + 未读角标 + 全部已读
+- **发布** — 真实视频文件上传（multipart + 进度条）+ 封面图上传，或 URL 填写
+- **图片上传** — 视频封面真实 multipart 上传
 - **登录注册** — JWT 鉴权
 - **黑色主题** — 还原抖音暗色风格，青/粉撞色
 
