@@ -70,6 +70,11 @@ export const likeLive = (id) => http.post(`/live/${id}/like`).then((r) => r.data
 // ---- Search (FTS5) ----
 export const searchVideos = (q) => http.get('/videos/search', { params: { q } }).then((r) => r.data.data)
 export const searchSuggest = (q) => http.get('/videos/search/suggest', { params: { q } }).then((r) => r.data.data)
+export const getHotSearch = () => http.get('/videos/hot-search').then((r) => r.data.data)
+
+// ---- Live danmaku ----
+export const getLiveMessages = (id, limit) => http.get(`/live/${id}/messages`, { params: { limit } }).then((r) => r.data.data)
+export const sendLiveMessage = (id, content) => http.post(`/live/${id}/messages`, { content }).then((r) => r.data.data)
 
 // ---- Comment likes ----
 export const likeComment = (id) => http.post(`/comments/${id}/like`).then((r) => r.data)

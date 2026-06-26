@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { getFeed, searchVideos } from '../api'
+import { getFeed, searchVideos, getHotSearch } from '../api'
 
 const router = useRouter()
 const allVideos = ref([])
@@ -10,6 +10,7 @@ const videos = ref([])
 const keyword = ref('')
 const loading = ref(true)
 const searching = ref(false)
+const hotList = ref([])
 
 onMounted(async () => {
   try {
@@ -21,6 +22,8 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  // Load the hot-search ranking (best-effort).
+  getHotSearch().then((data) => { hotList.value = data || [] }).catch(() => {})
 })
 
 async function doSearch() {
@@ -33,6 +36,8 @@ async function doSearch() {
   searching.value = true
   try {
     videos.value = await searchVideos(kw)
+    // Each search feeds the hot-search ranking; refresh it.
+    getHotSearch().then((data) => { hotList.value = data || [] }).catch(() => {})
   } catch (e) {
     // fall back to client-side filter if the search endpoint fails
     videos.value = allVideos.value.filter((v) =>
@@ -41,6 +46,11 @@ async function doSearch() {
   } finally {
     searching.value = false
   }
+}
+
+function searchHot(kw) {
+  keyword.value = kw
+  doSearch()
 }
 
 function fmtCount(n) {
@@ -56,6 +66,15 @@ function fmtCount(n) {
     </van-search>
     <div class="hot-tags">
       <van-tag v-for="t in ['旅行', '美食', '舞蹈', '萌宠', '摄影', 'vlog']" :key="t" round plain color="#fe2c55" size="medium" @click="keyword = t; doSearch()">#{{ t }}</van-tag>
+    </div>
+    <!-- Hot search ranking -->
+    <div v-if="hotList.length" class="hot-search">
+      <div class="hs-head">🔥 抖音热搜榜</div>
+      <div v-for="(h, i) in hotList.slice(0, 8)" :key="h.keyword" class="hs-item" @click="searchHot(h.keyword)">
+        <span class="hs-rank" :class="{ top: i < 3 }">{{ i + 1 }}</span>
+        <span class="hs-kw">{{ h.keyword }}</span>
+        <span class="hs-count">{{ fmtCount(h.count) }}次</span>
+      </div>
     </div>
     <div v-if="loading" class="loading"><van-loading color="#fe2c55" /></div>
     <div class="grid" v-else>
@@ -73,6 +92,13 @@ function fmtCount(n) {
 <style scoped>
 .discover-page { height: 100vh; overflow-y: auto; background: #000; }
 .hot-tags { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+.hot-search { background: #161616; margin: 8px 12px; border-radius: 10px; padding: 12px; }
+.hs-head { color: #fff; font-size: 15px; font-weight: bold; margin-bottom: 10px; }
+.hs-item { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
+.hs-rank { width: 22px; text-align: center; color: #999; font-size: 15px; font-weight: bold; font-style: italic; }
+.hs-rank.top { color: #fe2c55; }
+.hs-kw { flex: 1; color: #fff; font-size: 14px; }
+.hs-count { color: #666; font-size: 11px; }
 .loading { text-align: center; padding: 60px; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
 .grid-item { background: #111; border-radius: 6px; overflow: hidden; }

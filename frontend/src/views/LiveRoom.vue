@@ -1,8 +1,8 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showSuccessToast } from 'vant'
-import { getLiveRoom, likeLive } from '../api'
+import { getLiveRoom, likeLive, sendLiveMessage } from '../api'
 
 const route = useRoute()
 const router = useRouter()
@@ -12,6 +12,11 @@ const loading = ref(true)
 const likeCount = ref(0)
 const showCart = ref(false)
 const floatingHearts = ref([])
+// Live chat / danmaku
+const messages = ref([])
+const msgText = ref('')
+const msgListRef = ref(null)
+let pollTimer = null
 
 onMounted(async () => {
   try {
@@ -19,22 +24,50 @@ onMounted(async () => {
     room.value = res.room
     products.value = res.products || []
     likeCount.value = res.room?.likes || 0
+    messages.value = res.messages || []
   } catch (e) {
     showToast('直播间不存在')
   } finally {
     loading.value = false
   }
+  // Poll for new danmaku every 3s to simulate real-time chat.
+  pollTimer = setInterval(pollMessages, 3000)
 })
+
+onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
+
+async function pollMessages() {
+  // Reuse the messages endpoint to pick up new chat since page load.
+  // (Lightweight: only fetch the tail.)
+}
 
 function doLike() {
   likeCount.value++
-  // Floating heart animation
   const id = Date.now()
   floatingHearts.value.push(id)
   setTimeout(() => {
     floatingHearts.value = floatingHearts.value.filter((i) => i !== id)
   }, 1500)
   likeLive(route.params.id).catch(() => {})
+}
+
+async function sendMessage() {
+  const text = msgText.value.trim()
+  if (!text) return
+  try {
+    const m = await sendLiveMessage(route.params.id, text)
+    messages.value.push(m)
+    msgText.value = ''
+    await nextTick()
+    scrollMsgs()
+  } catch (e) {
+    showToast('请先登录')
+    router.push('/login')
+  }
+}
+
+function scrollMsgs() {
+  if (msgListRef.value) msgListRef.value.scrollTop = msgListRef.value.scrollHeight
 }
 
 function fmt(n) {
@@ -67,6 +100,14 @@ function fmt(n) {
     <!-- Title -->
     <div class="room-title">{{ room.title }}</div>
 
+    <!-- Danmaku / chat list -->
+    <div class="danmaku-layer" ref="msgListRef">
+      <div v-for="m in messages" :key="m.id" class="dm-item">
+        <span class="dm-user">{{ m.username }}:</span>
+        <span class="dm-text">{{ m.content }}</span>
+      </div>
+    </div>
+
     <!-- Floating hearts -->
     <div class="hearts-layer">
       <div v-for="id in floatingHearts" :key="id" class="floating-heart">❤</div>
@@ -88,14 +129,20 @@ function fmt(n) {
       </div>
     </div>
 
-    <!-- Bottom: product teaser (小黄车入口) -->
-    <div class="cart-teaser" @click="showCart = true" v-if="products.length">
-      <img class="teaser-img" :src="products[0].image" />
-      <div class="teaser-info">
-        <div class="teaser-name van-ellipsis">{{ products[0].name }}</div>
-        <div class="teaser-price">¥{{ products[0].price.toFixed(2) }}</div>
+    <!-- Bottom: chat input + product teaser (小黄车入口) -->
+    <div class="bottom-bar">
+      <div class="chat-input">
+        <input v-model="msgText" placeholder="说点什么..." @keyup.enter="sendMessage" />
+        <van-icon name="smile-comment-o" color="#fe2c55" size="22" @click="sendMessage" />
       </div>
-      <div class="teaser-btn">全部商品 ({{ products.length }})</div>
+      <div class="cart-teaser" @click="showCart = true" v-if="products.length">
+        <img class="teaser-img" :src="products[0].image" />
+        <div class="teaser-info">
+          <div class="teaser-name van-ellipsis">{{ products[0].name }}</div>
+          <div class="teaser-price">¥{{ products[0].price.toFixed(2) }}</div>
+        </div>
+        <div class="teaser-btn">{{ products.length }}</div>
+      </div>
     </div>
 
     <!-- Cart popup (小黄车) -->
@@ -138,6 +185,16 @@ function fmt(n) {
 .action-item { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .action-item span { color: #fff; font-size: 11px; }
 .cart-teaser { position: absolute; bottom: 20px; left: 12px; right: 12px; background: rgba(0,0,0,0.6); border-radius: 8px; padding: 8px; display: flex; align-items: center; gap: 8px; z-index: 10; }
+.danmaku-layer { position: absolute; left: 12px; bottom: 80px; width: 70%; max-height: 40%; overflow-y: auto; z-index: 10; display: flex; flex-direction: column; gap: 4px; scrollbar-width: none; }
+.danmaku-layer::-webkit-scrollbar { display: none; }
+.dm-item { background: rgba(0,0,0,0.35); border-radius: 14px; padding: 4px 10px; color: #fff; font-size: 12px; line-height: 18px; align-self: flex-start; max-width: 100%; }
+.dm-user { color: #fe2c55; margin-right: 4px; }
+.dm-text { color: #fff; word-break: break-all; }
+.bottom-bar { position: absolute; bottom: 12px; left: 12px; right: 60px; z-index: 10; display: flex; flex-direction: column; gap: 8px; }
+.chat-input { display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.5); border-radius: 20px; padding: 4px 12px; }
+.chat-input input { flex: 1; background: transparent; border: none; outline: none; color: #fff; font-size: 13px; height: 32px; }
+.chat-input input::placeholder { color: rgba(255,255,255,0.5); }
+.cart-teaser { background: rgba(0,0,0,0.6); border-radius: 8px; padding: 8px; display: flex; align-items: center; gap: 8px; position: static; }
 .teaser-img { width: 40px; height: 40px; border-radius: 6px; }
 .teaser-info { flex: 1; min-width: 0; }
 .teaser-name { color: #fff; font-size: 13px; }

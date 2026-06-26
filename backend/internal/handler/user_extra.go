@@ -16,6 +16,10 @@ func (h *Handler) SearchVideos(c *gin.Context) {
 	q := c.Query("q")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 	uid, _ := h.currentUserID(c, true)
+	// Log the search for the hot-search ranking (best-effort).
+	if h.SearchLog != nil && q != "" {
+		h.SearchLog.Log(q, uid)
+	}
 	results, err := h.Video.Search(q, limit, uid)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "搜索失败"})

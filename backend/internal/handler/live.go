@@ -9,9 +9,11 @@ import (
 	"github.com/CodingFervor/douyin-clone/backend/internal/repository"
 )
 
-// SetLive attaches the LiveRepo.
-func (h *Handler) SetLive(live *repository.LiveRepo) {
+// SetLive attaches the LiveRepo + the danmaku/search-log repos.
+func (h *Handler) SetLive(live *repository.LiveRepo, dm *repository.DanmakuRepo, sl *repository.SearchLogRepo) {
 	h.Live = live
+	h.Danmaku = dm
+	h.SearchLog = sl
 }
 
 // ListLive: GET /live  — list currently-live rooms.
@@ -40,7 +42,12 @@ func (h *Handler) GetLive(c *gin.Context) {
 	// Count the viewer in.
 	h.Live.IncrementViewers(id)
 	room.Viewers++
-	c.JSON(http.StatusOK, gin.H{"room": room, "products": products})
+	// Include recent danmaku so the room renders with chat history.
+	messages := []repository.LiveMessage{}
+	if h.Danmaku != nil {
+		messages, _ = h.Danmaku.ListByLive(id, 30)
+	}
+	c.JSON(http.StatusOK, gin.H{"room": room, "products": products, "messages": messages})
 }
 
 // LikeLive: POST /live/:id/like — bump the like counter.
@@ -52,4 +59,66 @@ func (h *Handler) LikeLive(c *gin.Context) {
 	}
 	h.Live.IncrementLikes(id)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// SendDanmaku: POST /live/:id/messages — send a chat/danmaku message (requires auth).
+func (h *Handler) SendDanmaku(c *gin.Context) {
+	uid, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	var req struct {
+		Content string `json:"content" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "内容不能为空"})
+		return
+	}
+	u, _ := h.User.Get(uid)
+	name, avatar := "", ""
+	if u != nil {
+		name, avatar = u.Nickname, u.Avatar
+	}
+	m, err := h.Danmaku.Send(id, uid, name, avatar, req.Content)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "发送失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": m})
+}
+
+// ListDanmaku: GET /live/:id/messages — recent chat for a room.
+func (h *Handler) ListDanmaku(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	list, err := h.Danmaku.ListByLive(id, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "加载失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list})
+}
+
+// HotSearch: GET /videos/hot-search — top searched keywords (ranked).
+func (h *Handler) HotSearch(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	if h.SearchLog == nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	list, err := h.SearchLog.HotSearch(limit)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list})
 }

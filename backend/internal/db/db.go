@@ -167,6 +167,26 @@ func createTables() error {
 			UNIQUE(user_id, comment_id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_comment_likes_comment ON comment_likes(comment_id)`,
+		// Live messages: chat/danmaku messages sent in a live room.
+		`CREATE TABLE IF NOT EXISTS live_messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			live_id INTEGER NOT NULL,
+			user_id INTEGER NOT NULL,
+			username TEXT NOT NULL DEFAULT '',
+			avatar TEXT NOT NULL DEFAULT '',
+			content TEXT NOT NULL,
+			is_system INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_live_messages_live ON live_messages(live_id)`,
+		// Search logs: aggregate of user searches, used to build the hot-search ranking.
+		`CREATE TABLE IF NOT EXISTS search_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			keyword TEXT NOT NULL,
+			user_id INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_search_logs_keyword ON search_logs(keyword)`,
 		// FTS5 full-text search over videos (title/description/tags/music).
 		`CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(title, description, tags, music, content='videos', content_rowid='id')`,
 		`CREATE TRIGGER IF NOT EXISTS videos_ai AFTER INSERT ON videos BEGIN

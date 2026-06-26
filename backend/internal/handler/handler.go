@@ -24,6 +24,8 @@ type Handler struct {
 	Recommend *repository.RecommendRepo
 	Notify    *repository.NotifyRepo
 	Live      *repository.LiveRepo
+	Danmaku   *repository.DanmakuRepo
+	SearchLog *repository.SearchLogRepo
 	jwtKey    []byte
 }
 

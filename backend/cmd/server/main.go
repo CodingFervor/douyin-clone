@@ -41,7 +41,7 @@ func main() {
 		repository.NewRecommendRepo(db.DB),
 		repository.NewNotifyRepo(db.DB),
 	)
-	h.SetLive(repository.NewLiveRepo(db.DB))
+	h.SetLive(repository.NewLiveRepo(db.DB), repository.NewDanmakuRepo(db.DB), repository.NewSearchLogRepo(db.DB))
 
 	// Seed live rooms + products.
 	repository.NewLiveRepo(db.DB).SeedLive()
