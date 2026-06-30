@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showSuccessToast } from 'vant'
-import { getLiveRoom, likeLive, sendLiveMessage } from '../api'
+import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts } from '../api'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,6 +17,10 @@ const messages = ref([])
 const msgText = ref('')
 const msgListRef = ref(null)
 let pollTimer = null
+// Gifts
+const gifts = ref([])
+const showGifts = ref(false)
+const flyingGifts = ref([])
 
 onMounted(async () => {
   try {
@@ -30,15 +34,15 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-  // Poll for new danmaku every 3s to simulate real-time chat.
+  // Load the gift catalog (best-effort).
+  getLiveGifts().then((data) => { gifts.value = data || [] }).catch(() => {})
   pollTimer = setInterval(pollMessages, 3000)
 })
 
 onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
 
 async function pollMessages() {
-  // Reuse the messages endpoint to pick up new chat since page load.
-  // (Lightweight: only fetch the tail.)
+  // Lightweight: reserved for real-time chat polling.
 }
 
 function doLike() {
@@ -64,6 +68,20 @@ async function sendMessage() {
     showToast('请先登录')
     router.push('/login')
   }
+}
+
+// Send a gift: plays a flying animation + posts a system-style danmaku.
+function sendGift(g) {
+  const id = Date.now() + Math.random()
+  flyingGifts.value.push({ id, icon: g.icon, name: g.name })
+  setTimeout(() => {
+    flyingGifts.value = flyingGifts.value.filter((f) => f.id !== id)
+  }, 2500)
+  // Echo a notice into the chat.
+  messages.value.push({ id, username: '我', content: `送出 ${g.icon} ${g.name}`, is_gift: true })
+  nextTick(scrollMsgs)
+  showGifts.value = false
+  showSuccessToast(`送出 ${g.icon} ${g.name}`)
 }
 
 function scrollMsgs() {
@@ -119,6 +137,10 @@ function fmt(n) {
         <van-icon name="like" color="#fe2c55" size="32" />
         <span>{{ fmt(likeCount) }}</span>
       </div>
+      <div class="action-item" @click="showGifts = true">
+        <van-icon name="gift-o" color="#ffd700" size="32" />
+        <span>礼物</span>
+      </div>
       <div class="action-item" @click="showCart = true">
         <van-icon name="shopping-cart-o" color="#fff" size="32" />
         <span>{{ products.length }}件商品</span>
@@ -126,6 +148,13 @@ function fmt(n) {
       <div class="action-item" @click="router.push('/feed')">
         <van-icon name="cross" color="#fff" size="32" />
         <span>关闭</span>
+      </div>
+    </div>
+
+    <!-- Flying gifts animation layer -->
+    <div class="gift-layer">
+      <div v-for="g in flyingGifts" :key="g.id" class="flying-gift">
+        <span class="fg-icon">{{ g.icon }}</span>
       </div>
     </div>
 
@@ -161,6 +190,21 @@ function fmt(n) {
             </div>
             <van-button size="mini" round color="#fe2c55" @click="showSuccessToast('已加入购物车')">抢购</van-button>
           </div>
+        </div>
+      </div>
+    </van-popup>
+
+    <!-- Gift tray popup -->
+    <van-popup v-model:show="showGifts" position="bottom" round :style="{ height: '40%' }">
+      <div class="gift-panel">
+        <div class="gp-head">送礼</div>
+        <div class="gp-grid">
+          <div v-for="g in gifts" :key="g.id" class="gp-item" @click="sendGift(g)">
+            <div class="gp-icon">{{ g.icon }}</div>
+            <div class="gp-name">{{ g.name }}</div>
+            <div class="gp-price">{{ g.price }}</div>
+          </div>
+          <van-empty v-if="!gifts.length" description="暂无礼物" image="search" />
         </div>
       </div>
     </van-popup>
@@ -210,4 +254,16 @@ function fmt(n) {
 .cp-meta { display: flex; gap: 10px; align-items: baseline; margin-top: 4px; }
 .cp-price { color: #fe2c55; font-size: 16px; font-weight: bold; }
 .cp-sales { color: #999; font-size: 11px; }
+.gift-layer { position: absolute; top: 30%; left: 0; right: 0; z-index: 16; pointer-events: none; display: flex; justify-content: center; }
+.flying-gift { animation: flyGift 2.5s ease-out forwards; }
+.fg-icon { font-size: 64px; filter: drop-shadow(0 0 12px rgba(255, 215, 0, 0.8)); }
+@keyframes flyGift { 0% { transform: translateY(60px) scale(0.4); opacity: 0; } 25% { transform: translateY(0) scale(1.4); opacity: 1; } 80% { transform: translateY(-20px) scale(1.2); opacity: 1; } 100% { transform: translateY(-80px) scale(1); opacity: 0; } }
+.gift-panel { background: #161616; height: 100%; display: flex; flex-direction: column; }
+.gp-head { text-align: center; padding: 14px; color: #fff; font-size: 15px; border-bottom: 1px solid #222; }
+.gp-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 12px; overflow-y: auto; }
+.gp-item { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border-radius: 8px; }
+.gp-item:active { background: #222; }
+.gp-icon { font-size: 32px; }
+.gp-name { color: #fff; font-size: 12px; }
+.gp-price { color: #ffd700; font-size: 11px; }
 </style>

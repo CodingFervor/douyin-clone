@@ -76,6 +76,13 @@ export const getHotSearch = () => http.get('/videos/hot-search').then((r) => r.d
 export const getLiveMessages = (id, limit) => http.get(`/live/${id}/messages`, { params: { limit } }).then((r) => r.data.data)
 export const sendLiveMessage = (id, content) => http.post(`/live/${id}/messages`, { content }).then((r) => r.data.data)
 
+// ---- Live gifts ----
+export const getLiveGifts = () => http.get('/live/gifts').then((r) => r.data.data)
+
+// ---- Hashtags (#话题) ----
+export const getHotHashtags = () => http.get('/videos/hashtags').then((r) => r.data.data)
+export const getVideosByTag = (tag) => http.get(`/videos/tag/${encodeURIComponent(tag)}`).then((r) => r.data.data)
+
 // ---- Comment likes ----
 export const likeComment = (id) => http.post(`/comments/${id}/like`).then((r) => r.data)
 

@@ -187,6 +187,21 @@ func createTables() error {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_search_logs_keyword ON search_logs(keyword)`,
+		// Hashtags: aggregated topic tag usage (#话题), ranked by video count.
+		`CREATE TABLE IF NOT EXISTS hashtags (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			uses INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_hashtags_uses ON hashtags(uses)`,
+		// Live gifts: gift catalog for the live room (礼物).
+		`CREATE TABLE IF NOT EXISTS live_gifts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			icon TEXT NOT NULL DEFAULT '',
+			price INTEGER NOT NULL DEFAULT 0,
+			sort_order INTEGER NOT NULL DEFAULT 0
+		)`,
 		// FTS5 full-text search over videos (title/description/tags/music).
 		`CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(title, description, tags, music, content='videos', content_rowid='id')`,
 		`CREATE TRIGGER IF NOT EXISTS videos_ai AFTER INSERT ON videos BEGIN

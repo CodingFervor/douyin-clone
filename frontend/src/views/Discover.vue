@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { getFeed, searchVideos, getHotSearch } from '../api'
+import { getFeed, searchVideos, getHotSearch, getHotHashtags } from '../api'
 
 const router = useRouter()
 const allVideos = ref([])
@@ -11,6 +11,7 @@ const keyword = ref('')
 const loading = ref(true)
 const searching = ref(false)
 const hotList = ref([])
+const tags = ref([])
 
 onMounted(async () => {
   try {
@@ -22,8 +23,9 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-  // Load the hot-search ranking (best-effort).
+  // Load the hot-search ranking + hot hashtags (best-effort).
   getHotSearch().then((data) => { hotList.value = data || [] }).catch(() => {})
+  getHotHashtags().then((data) => { tags.value = data || [] }).catch(() => {})
 })
 
 async function doSearch() {
@@ -76,6 +78,15 @@ function fmtCount(n) {
         <span class="hs-count">{{ fmtCount(h.count) }}次</span>
       </div>
     </div>
+    <!-- Hot hashtags (#话题) -->
+    <div v-if="tags.length" class="hot-search">
+      <div class="hs-head"># 热门话题</div>
+      <div class="tag-chips">
+        <van-tag v-for="t in tags.slice(0, 12)" :key="t.id" round plain color="#fe2c55" size="medium" @click="router.push('/tag/' + t.name)">
+          #{{ t.name }} <small>{{ fmtCount(t.uses) }}</small>
+        </van-tag>
+      </div>
+    </div>
     <div v-if="loading" class="loading"><van-loading color="#fe2c55" /></div>
     <div class="grid" v-else>
       <div v-for="v in videos" :key="v.id" class="grid-item" @click="router.push('/feed')">
@@ -99,6 +110,8 @@ function fmtCount(n) {
 .hs-rank.top { color: #fe2c55; }
 .hs-kw { flex: 1; color: #fff; font-size: 14px; }
 .hs-count { color: #666; font-size: 11px; }
+.tag-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.tag-chips small { color: #666; font-size: 10px; }
 .loading { text-align: center; padding: 60px; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
 .grid-item { background: #111; border-radius: 6px; overflow: hidden; }

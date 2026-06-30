@@ -26,6 +26,8 @@ type Handler struct {
 	Live      *repository.LiveRepo
 	Danmaku   *repository.DanmakuRepo
 	SearchLog *repository.SearchLogRepo
+	Hashtag   *repository.HashtagRepo
+	Gift      *repository.GiftRepo
 	jwtKey    []byte
 }
 

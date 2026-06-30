@@ -28,6 +28,7 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 
 		// Live streaming (public)
 		api.GET("/live", h.ListLive)
+		api.GET("/live/gifts", h.ListGifts)
 		api.GET("/live/:id", h.GetLive)
 		api.GET("/live/:id/messages", h.ListDanmaku)
 		api.POST("/live/:id/like", h.LikeLive)
@@ -38,6 +39,8 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 		api.GET("/videos/search", h.SearchVideos)
 		api.GET("/videos/search/suggest", h.SearchSuggest)
 		api.GET("/videos/hot-search", h.HotSearch)
+		api.GET("/videos/hashtags", h.HotHashtags)
+		api.GET("/videos/tag/:tag", h.VideosByTag)
 		api.GET("/videos/:id", h.GetVideo)
 		api.GET("/videos/:id/comments", h.ListComments)
 		api.GET("/users/:id", h.GetUser)

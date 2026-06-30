@@ -43,6 +43,36 @@ func (h *Handler) SearchSuggest(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": out})
 }
 
+// ===================== Hashtags (#话题) =====================
+
+// HotHashtags: GET /videos/hashtags — top hashtags (ranked by usage).
+func (h *Handler) HotHashtags(c *gin.Context) {
+	if h.Hashtag == nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	list, err := h.Hashtag.Top(limit)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list})
+}
+
+// VideosByTag: GET /videos/tag/:tag — videos carrying a hashtag.
+func (h *Handler) VideosByTag(c *gin.Context) {
+	tag := c.Param("tag")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	uid, _ := h.currentUserID(c, true)
+	list, err := h.Video.ListByTag(tag, limit, uid)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list, "tag": tag})
+}
+
 // ===================== Comment likes =====================
 
 // LikeComment: POST /comments/:id/like  (requires auth)

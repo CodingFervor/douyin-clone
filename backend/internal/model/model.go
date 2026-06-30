@@ -79,6 +79,22 @@ type VideoInput struct {
 	Music       string `json:"music"`
 }
 
+// Hashtag is an aggregated topic tag (#话题) ranked by usage.
+type Hashtag struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Uses int    `json:"uses"`
+}
+
+// LiveGift is a gift in the live-room gift tray.
+type LiveGift struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Icon      string `json:"icon"`
+	Price     int    `json:"price"`
+	SortOrder int    `json:"sort_order"`
+}
+
 type ProfileInput struct {
 	Nickname string `json:"nickname"`
 	Avatar   string `json:"avatar"`

@@ -41,10 +41,15 @@ func main() {
 		repository.NewRecommendRepo(db.DB),
 		repository.NewNotifyRepo(db.DB),
 	)
-	h.SetLive(repository.NewLiveRepo(db.DB), repository.NewDanmakuRepo(db.DB), repository.NewSearchLogRepo(db.DB))
-
 	// Seed live rooms + products.
 	repository.NewLiveRepo(db.DB).SeedLive()
+
+	// Seed the gift catalog + rebuild the hashtag usage counts.
+	hashtagRepo := repository.NewHashtagRepo(db.DB)
+	hashtagRepo.Rebuild()
+	giftRepo := repository.NewGiftRepo(db.DB)
+	giftRepo.SeedGifts()
+	h.SetLive(repository.NewLiveRepo(db.DB), repository.NewDanmakuRepo(db.DB), repository.NewSearchLogRepo(db.DB), hashtagRepo, giftRepo)
 
 	// Ensure the uploads directory exists for the static file server.
 	_ = os.MkdirAll("data/uploads", 0o755)

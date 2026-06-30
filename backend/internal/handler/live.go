@@ -9,11 +9,13 @@ import (
 	"github.com/CodingFervor/douyin-clone/backend/internal/repository"
 )
 
-// SetLive attaches the LiveRepo + the danmaku/search-log repos.
-func (h *Handler) SetLive(live *repository.LiveRepo, dm *repository.DanmakuRepo, sl *repository.SearchLogRepo) {
+// SetLive attaches the LiveRepo + the danmaku/search-log/hashtag/gift repos.
+func (h *Handler) SetLive(live *repository.LiveRepo, dm *repository.DanmakuRepo, sl *repository.SearchLogRepo, ht *repository.HashtagRepo, gf *repository.GiftRepo) {
 	h.Live = live
 	h.Danmaku = dm
 	h.SearchLog = sl
+	h.Hashtag = ht
+	h.Gift = gf
 }
 
 // ListLive: GET /live  — list currently-live rooms.
@@ -116,6 +118,20 @@ func (h *Handler) HotSearch(c *gin.Context) {
 		return
 	}
 	list, err := h.SearchLog.HotSearch(limit)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list})
+}
+
+// ListGifts: GET /live/gifts — the live-room gift catalog.
+func (h *Handler) ListGifts(c *gin.Context) {
+	if h.Gift == nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	list, err := h.Gift.List()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"data": []any{}})
 		return

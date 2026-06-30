@@ -294,6 +294,37 @@ func (r *VideoRepo) Suggest(prefix string, limit int) ([]string, error) {
 	return out, nil
 }
 
+// ListByTag returns videos that carry the given hashtag in their tags field.
+func (r *VideoRepo) ListByTag(tag string, limit int, currentUserID int64) ([]model.Video, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return []model.Video{}, nil
+	}
+	rows, err := r.db.Query(
+		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
+		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
+		        v.shares, v.tags, v.music, v.created_at
+		 FROM videos v JOIN users u ON u.id = v.author_id
+		 WHERE ',' || REPLACE(v.tags, ' ', ',') || ',' LIKE ?
+		 ORDER BY v.likes DESC LIMIT ?`, "%,"+tag+",%", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.Video{}
+	for rows.Next() {
+		var v model.Video
+		if scanVideo(rows, &v) == nil {
+			out = append(out, v)
+		}
+	}
+	r.annotateUserState(out, currentUserID)
+	return out, nil
+}
+
 func scanVideo(rows *sql.Rows, v *model.Video) error {
 	return rows.Scan(&v.ID, &v.AuthorID, &v.AuthorName, &v.AuthorAvatar, &v.Title, &v.Description,
 		&v.VideoURL, &v.CoverURL, &v.Duration, &v.Plays, &v.Likes, &v.CommentsCount, &v.Shares, &v.Tags, &v.Music, &v.CreatedAt)
