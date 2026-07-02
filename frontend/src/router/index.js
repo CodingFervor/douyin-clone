@@ -13,6 +13,7 @@ const routes = [
   { path: '/user/:id', name: 'user', component: () => import('../views/UserProfile.vue') },
   { path: '/profile', name: 'profile', component: () => import('../views/EditProfile.vue'), meta: { auth: true } },
   { path: '/tag/:tag', name: 'hashtag', component: () => import('../views/HashtagPage.vue') },
+  { path: '/music/:id', name: 'music', component: () => import('../views/MusicPage.vue') },
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })

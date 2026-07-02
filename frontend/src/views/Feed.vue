@@ -2,7 +2,7 @@
 import { ref, onMounted, onActivated, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { getFeed, getRecommendFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment } from '../api'
+import { getFeed, getRecommendFeed, getFollowingFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment } from '../api'
 
 const router = useRouter()
 const videos = ref([])
@@ -25,10 +25,22 @@ watch(activeTab, (tab) => loadFeed(tab))
 async function loadFeed(tab) {
   loading.value = true
   try {
-    // "recommend" uses the collaborative-filtering engine; "follow" shows the
-    // latest feed as a stand-in (follow-specific filtering is a future step).
-    const data = tab === 'follow' ? await getFeed(20) : await getRecommendFeed(20)
-    videos.value = data.length ? data : await getFeed(20)
+    // "follow" shows videos from the users the current user follows; "recommend"
+    // uses the collaborative-filtering engine. If the following feed is empty,
+    // fall back to the general feed so the tab is never blank.
+    let data
+    if (tab === 'follow') {
+      try {
+        data = await getFollowingFeed(20)
+      } catch (e) {
+        data = [] // not logged in or error
+      }
+      if (!data.length) data = await getFeed(20)
+    } else {
+      data = await getRecommendFeed(20)
+      if (!data.length) data = await getFeed(20)
+    }
+    videos.value = data
     index.value = 0
     await nextTick()
     playCurrent()
@@ -218,7 +230,7 @@ function fmtCount(n) {
           <div class="tags">
             <span v-for="t in (v.tags || '').split(',')" :key="t" class="tag">#{{ t }}</span>
           </div>
-          <div class="music-row"><van-icon name="music-o" size="14" /><span class="music-name">{{ v.music }}</span></div>
+          <div class="music-row" @click.stop="router.push('/music/' + v.id)"><van-icon name="music-o" size="14" /><span class="music-name">{{ v.music }}</span></div>
         </div>
       </div>
     </div>

@@ -41,6 +41,7 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 		api.GET("/videos/hot-search", h.HotSearch)
 		api.GET("/videos/hashtags", h.HotHashtags)
 		api.GET("/videos/tag/:tag", h.VideosByTag)
+		api.GET("/videos/music/:id", h.VideosByMusic)
 		api.GET("/videos/:id", h.GetVideo)
 		api.GET("/videos/:id/comments", h.ListComments)
 		api.GET("/users/:id", h.GetUser)
@@ -54,6 +55,9 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 		{
 			auth.GET("/auth/profile", h.Profile)
 			auth.PUT("/auth/profile", h.UpdateProfile)
+
+			// Following feed (关注 tab)
+			auth.GET("/videos/following", h.FollowingFeed)
 
 			auth.POST("/videos/:id/like", h.ToggleLike)
 			auth.POST("/videos/:id/favorite", h.ToggleFavorite)

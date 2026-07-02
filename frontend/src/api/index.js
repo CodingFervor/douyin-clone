@@ -83,6 +83,12 @@ export const getLiveGifts = () => http.get('/live/gifts').then((r) => r.data.dat
 export const getHotHashtags = () => http.get('/videos/hashtags').then((r) => r.data.data)
 export const getVideosByTag = (tag) => http.get(`/videos/tag/${encodeURIComponent(tag)}`).then((r) => r.data.data)
 
+// ---- Same BGM (同款BGM) ----
+export const getVideosByMusic = (id) => http.get(`/videos/music/${id}`).then((r) => r.data)
+
+// ---- Following feed (关注 tab) ----
+export const getFollowingFeed = (limit = 20) => http.get('/videos/following', { params: { limit } }).then((r) => r.data.data)
+
 // ---- Comment likes ----
 export const likeComment = (id) => http.post(`/comments/${id}/like`).then((r) => r.data)
 

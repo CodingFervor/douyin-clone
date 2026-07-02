@@ -73,6 +73,28 @@ func (h *Handler) VideosByTag(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": list, "tag": tag})
 }
 
+// VideosByMusic: GET /videos/music/:id — videos using the same BGM (同款BGM).
+func (h *Handler) VideosByMusic(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	src, err := h.Video.Get(id, 0)
+	if err != nil || src == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "视频不存在"})
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	uid, _ := h.currentUserID(c, true)
+	list, err := h.Video.ListByMusic(src.Music, id, limit, uid)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list, "music": src.Music})
+}
+
 // ===================== Comment likes =====================
 
 // LikeComment: POST /comments/:id/like  (requires auth)

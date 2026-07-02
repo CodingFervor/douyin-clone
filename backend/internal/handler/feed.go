@@ -23,6 +23,21 @@ func (h *Handler) Feed(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": videos})
 }
 
+// FollowingFeed: GET /videos/following — videos by followed authors (关注 tab).
+func (h *Handler) FollowingFeed(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	uid, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	videos, err := h.Video.ListFollowingFeed(uid, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "加载失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": videos})
+}
+
 // GetVideo: GET /videos/:id
 func (h *Handler) GetVideo(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)

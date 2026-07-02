@@ -325,6 +325,66 @@ func (r *VideoRepo) ListByTag(tag string, limit int, currentUserID int64) ([]mod
 	return out, nil
 }
 
+// ListByMusic returns videos sharing the same background music (同款BGM).
+func (r *VideoRepo) ListByMusic(music string, excludeID int64, limit int, currentUserID int64) ([]model.Video, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	music = strings.TrimSpace(music)
+	if music == "" {
+		return []model.Video{}, nil
+	}
+	rows, err := r.db.Query(
+		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
+		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
+		        v.shares, v.tags, v.music, v.created_at
+		 FROM videos v JOIN users u ON u.id = v.author_id
+		 WHERE v.music=? AND v.id != ?
+		 ORDER BY v.likes DESC LIMIT ?`, music, excludeID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.Video{}
+	for rows.Next() {
+		var v model.Video
+		if scanVideo(rows, &v) == nil {
+			out = append(out, v)
+		}
+	}
+	r.annotateUserState(out, currentUserID)
+	return out, nil
+}
+
+// ListFollowingFeed returns videos authored by the users the current user
+// follows (the "关注" tab). Falls back to an empty list if the user follows no one.
+func (r *VideoRepo) ListFollowingFeed(userID int64, limit int) ([]model.Video, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	rows, err := r.db.Query(
+		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
+		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
+		        v.shares, v.tags, v.music, v.created_at
+		 FROM videos v JOIN users u ON u.id = v.author_id
+		 JOIN follows f ON f.followee_id = v.author_id
+		 WHERE f.follower_id=? AND u.id != ?
+		 ORDER BY v.id DESC LIMIT ?`, userID, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.Video{}
+	for rows.Next() {
+		var v model.Video
+		if scanVideo(rows, &v) == nil {
+			out = append(out, v)
+		}
+	}
+	r.annotateUserState(out, userID)
+	return out, nil
+}
+
 func scanVideo(rows *sql.Rows, v *model.Video) error {
 	return rows.Scan(&v.ID, &v.AuthorID, &v.AuthorName, &v.AuthorAvatar, &v.Title, &v.Description,
 		&v.VideoURL, &v.CoverURL, &v.Duration, &v.Plays, &v.Likes, &v.CommentsCount, &v.Shares, &v.Tags, &v.Music, &v.CreatedAt)
