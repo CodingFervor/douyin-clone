@@ -66,6 +66,7 @@ func createTables() error {
 			shares INTEGER NOT NULL DEFAULT 0,
 			tags TEXT NOT NULL DEFAULT '',
 			music TEXT NOT NULL DEFAULT '原声',
+			parent_id INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_videos_author ON videos(author_id)`,
@@ -202,6 +203,18 @@ func createTables() error {
 			price INTEGER NOT NULL DEFAULT 0,
 			sort_order INTEGER NOT NULL DEFAULT 0
 		)`,
+		// Duets: a duet (合拍) is a video whose parent_id points at the original.
+		// The parent link is stored directly on videos (added via migrate), so
+		// this table only tracks the duet relationship metadata.
+		`CREATE TABLE IF NOT EXISTS duets (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			video_id INTEGER NOT NULL,       -- the duet video
+			parent_video_id INTEGER NOT NULL, -- the original being duetted
+			user_id INTEGER NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(video_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_duets_parent ON duets(parent_video_id)`,
 		// FTS5 full-text search over videos (title/description/tags/music).
 		`CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(title, description, tags, music, content='videos', content_rowid='id')`,
 		`CREATE TRIGGER IF NOT EXISTS videos_ai AFTER INSERT ON videos BEGIN
@@ -232,5 +245,7 @@ func createTables() error {
 func migrate() error {
 	// 'rebuild' repopulates the external-content FTS table from its source.
 	_, _ = DB.Exec(`INSERT INTO videos_fts(videos_fts) VALUES ('rebuild')`)
+	// Add parent_id to videos (for duets/合拍) — added after launch.
+	_, _ = DB.Exec(`ALTER TABLE videos ADD COLUMN parent_id INTEGER NOT NULL DEFAULT 0`)
 	return nil
 }

@@ -13,6 +13,8 @@ type User struct {
 	FollowersCount int       `json:"followers_count"`
 	LikesCount     int       `json:"likes_count"`
 	IsFollowing    bool      `json:"is_following"`
+	Level          int       `json:"level"`       // derived user level (用户等级)
+	LevelTitle     string    `json:"level_title"` // e.g. "青铜", "王者"
 	CreatedAt      time.Time `json:"created_at"`
 }
 
@@ -32,6 +34,7 @@ type Video struct {
 	Shares        int       `json:"shares"`
 	Tags          string    `json:"tags"`
 	Music         string    `json:"music"`
+	ParentID      int64     `json:"parent_id"` // >0 means this is a duet (合拍) of that video
 	Liked         bool      `json:"liked"`
 	Favorited     bool      `json:"favorited"`
 	CreatedAt     time.Time `json:"created_at"`

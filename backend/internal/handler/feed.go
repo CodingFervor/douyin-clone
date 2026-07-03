@@ -72,6 +72,22 @@ func (h *Handler) UserVideos(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": videos})
 }
 
+// ListDuets: GET /videos/:id/duets — videos that duetted the original (合拍).
+func (h *Handler) ListDuets(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	uid, _ := h.currentUserID(c, true)
+	list, err := h.Video.ListDuets(id, 20, uid)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list})
+}
+
 // ---- Likes ----
 
 // ToggleLike: POST /videos/:id/like  (requires auth)
@@ -269,6 +285,40 @@ func (h *Handler) UploadVideo(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"id": id, "message": "发布成功"})
+}
+
+// CreateDuet: POST /videos/:id/duet — create a duet (合拍) of an existing video.
+// For the demo the duet reuses the parent's media URL (no real compositing).
+func (h *Handler) CreateDuet(c *gin.Context) {
+	uid, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	parentID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	parent, err := h.Video.Get(parentID, 0)
+	if err != nil || parent == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "原视频不存在"})
+		return
+	}
+	var req struct {
+		Title string `json:"title"`
+		Tags  string `json:"tags"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	title := req.Title
+	if title == "" {
+		title = "合拍 @" + parent.AuthorName
+	}
+	vid, err := h.Video.CreateDuet(uid, parentID, title, "合拍作品", parent.VideoURL, parent.CoverURL, req.Tags, parent.Music)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "合拍失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"id": vid, "message": "合拍成功"})
 }
 
 // DeleteVideo: DELETE /admin/videos/:id

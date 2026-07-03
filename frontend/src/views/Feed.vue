@@ -216,6 +216,10 @@ function fmtCount(n) {
             <van-icon :name="v.favorited ? 'star' : 'star-o'" :color="v.favorited ? '#ffc107' : '#fff'" size="32" />
             <span>{{ fmtCount(v.shares) }}</span>
           </div>
+          <div class="action-item" @click="router.push('/duet/' + v.id)">
+            <van-icon name="exchange" color="#25f4ee" size="32" />
+            <span>合拍</span>
+          </div>
           <div class="action-item" @click="showToast('分享功能为演示')">
             <van-icon name="share-o" color="#fff" size="32" />
             <span>分享</span>

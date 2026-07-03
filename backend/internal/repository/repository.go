@@ -69,6 +69,38 @@ func (r *UserRepo) UpdateFollowersCount(id int64, delta int) error {
 	return err
 }
 
+// ApplyLevel derives a user's level + title from their stats (followers, likes,
+// video count) and writes it onto the model. This is a lightweight in-memory
+// computation (no DB write) so it can decorate any user response.
+func ApplyLevel(u *model.User) {
+	if u == nil {
+		return
+	}
+	// "Experience" = followers*10 + likes + videos*5. Count videos via a cheap
+	// heuristic: likes_count already aggregates per-user likes.
+	xp := u.FollowersCount*10 + u.LikesCount
+	switch {
+	case xp >= 100000:
+		u.Level = 6
+		u.LevelTitle = "王者"
+	case xp >= 50000:
+		u.Level = 5
+		u.LevelTitle = "钻石"
+	case xp >= 20000:
+		u.Level = 4
+		u.LevelTitle = "铂金"
+	case xp >= 8000:
+		u.Level = 3
+		u.LevelTitle = "黄金"
+	case xp >= 2000:
+		u.Level = 2
+		u.LevelTitle = "白银"
+	default:
+		u.Level = 1
+		u.LevelTitle = "青铜"
+	}
+}
+
 // UpdateProfile edits a user's mutable profile fields (nickname/avatar/bio).
 func (r *UserRepo) UpdateProfile(u *model.User) error {
 	res, err := r.db.Exec(
@@ -99,7 +131,7 @@ func (r *VideoRepo) Feed(limit int, currentUserID int64) ([]model.Video, error) 
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.created_at
+		        v.shares, v.tags, v.music, v.parent_id, v.created_at
 		 FROM videos v JOIN users u ON u.id = v.author_id
 		 ORDER BY v.id DESC LIMIT ?`, limit)
 	if err != nil {
@@ -122,7 +154,7 @@ func (r *VideoRepo) ListByAuthor(authorID, currentUserID int64) ([]model.Video, 
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.created_at
+		        v.shares, v.tags, v.music, v.parent_id, v.created_at
 		 FROM videos v JOIN users u ON u.id = v.author_id
 		 WHERE v.author_id=? ORDER BY v.id DESC`, authorID)
 	if err != nil {
@@ -145,7 +177,7 @@ func (r *VideoRepo) ListFavorites(userID int64) ([]model.Video, error) {
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.created_at
+		        v.shares, v.tags, v.music, v.parent_id, v.created_at
 		 FROM favorites f
 		 JOIN videos v ON v.id = f.video_id
 		 JOIN users u ON u.id = v.author_id
@@ -170,7 +202,7 @@ func (r *VideoRepo) Get(id, currentUserID int64) (*model.Video, error) {
 	row := r.db.QueryRow(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.created_at
+		        v.shares, v.tags, v.music, v.parent_id, v.created_at
 		 FROM videos v JOIN users u ON u.id = v.author_id WHERE v.id=?`, id)
 	if err := scanVideoRow(row, v); err != nil {
 		if err == sql.ErrNoRows {
@@ -215,6 +247,59 @@ func (r *VideoRepo) CreateRaw(authorID int64, title, description, videoURL, cove
 	return res.LastInsertId()
 }
 
+// CreateDuet inserts a duet video (合拍) that references its parent, and records
+// the relationship. Returns the new video id.
+func (r *VideoRepo) CreateDuet(authorID, parentID int64, title, description, videoURL, coverURL, tags, music string) (int64, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(
+		`INSERT INTO videos (author_id, title, description, video_url, cover_url, tags, music, parent_id)
+		 VALUES (?,?,?,?,?,?,?,?)`,
+		authorID, title, description, videoURL, coverURL, tags, defaultStr(music, "原声"), parentID)
+	if err != nil {
+		return 0, err
+	}
+	vid, _ := res.LastInsertId()
+	if _, err := tx.Exec(
+		`INSERT INTO duets (video_id, parent_video_id, user_id) VALUES (?,?,?)`,
+		vid, parentID, authorID); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return vid, nil
+}
+
+// ListDuets returns videos that duetted the given original (parent) video.
+func (r *VideoRepo) ListDuets(parentID int64, limit int, currentUserID int64) ([]model.Video, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	rows, err := r.db.Query(
+		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
+		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
+		        v.shares, v.tags, v.music, v.parent_id, v.created_at
+		 FROM videos v JOIN users u ON u.id = v.author_id
+		 WHERE v.parent_id=? ORDER BY v.likes DESC LIMIT ?`, parentID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.Video{}
+	for rows.Next() {
+		var v model.Video
+		if scanVideo(rows, &v) == nil {
+			out = append(out, v)
+		}
+	}
+	r.annotateUserState(out, currentUserID)
+	return out, nil
+}
+
 func (r *VideoRepo) Delete(id, authorID int64) error {
 	_, err := r.db.Exec(`DELETE FROM videos WHERE id=? AND author_id=?`, id, authorID)
 	return err
@@ -245,7 +330,7 @@ func (r *VideoRepo) Search(q string, limit int, currentUserID int64) ([]model.Vi
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.created_at
+		        v.shares, v.tags, v.music, v.parent_id, v.created_at
 		 FROM videos_fts f JOIN videos v ON v.id = f.rowid JOIN users u ON u.id = v.author_id
 		 WHERE videos_fts MATCH ? ORDER BY v.likes DESC LIMIT ?`, matchExpr, limit)
 	if err != nil {
@@ -253,7 +338,7 @@ func (r *VideoRepo) Search(q string, limit int, currentUserID int64) ([]model.Vi
 		rows, err = r.db.Query(
 			`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 			        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-			        v.shares, v.tags, v.music, v.created_at
+			        v.shares, v.tags, v.music, v.parent_id, v.created_at
 			 FROM videos v JOIN users u ON u.id = v.author_id
 			 WHERE v.title LIKE ? OR v.description LIKE ? OR v.tags LIKE ?
 			 ORDER BY v.likes DESC LIMIT ?`, "%"+q+"%", "%"+q+"%", "%"+q+"%", limit)
@@ -306,7 +391,7 @@ func (r *VideoRepo) ListByTag(tag string, limit int, currentUserID int64) ([]mod
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.created_at
+		        v.shares, v.tags, v.music, v.parent_id, v.created_at
 		 FROM videos v JOIN users u ON u.id = v.author_id
 		 WHERE ',' || REPLACE(v.tags, ' ', ',') || ',' LIKE ?
 		 ORDER BY v.likes DESC LIMIT ?`, "%,"+tag+",%", limit)
@@ -337,7 +422,7 @@ func (r *VideoRepo) ListByMusic(music string, excludeID int64, limit int, curren
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.created_at
+		        v.shares, v.tags, v.music, v.parent_id, v.created_at
 		 FROM videos v JOIN users u ON u.id = v.author_id
 		 WHERE v.music=? AND v.id != ?
 		 ORDER BY v.likes DESC LIMIT ?`, music, excludeID, limit)
@@ -365,7 +450,7 @@ func (r *VideoRepo) ListFollowingFeed(userID int64, limit int) ([]model.Video, e
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.created_at
+		        v.shares, v.tags, v.music, v.parent_id, v.created_at
 		 FROM videos v JOIN users u ON u.id = v.author_id
 		 JOIN follows f ON f.followee_id = v.author_id
 		 WHERE f.follower_id=? AND u.id != ?
@@ -387,12 +472,12 @@ func (r *VideoRepo) ListFollowingFeed(userID int64, limit int) ([]model.Video, e
 
 func scanVideo(rows *sql.Rows, v *model.Video) error {
 	return rows.Scan(&v.ID, &v.AuthorID, &v.AuthorName, &v.AuthorAvatar, &v.Title, &v.Description,
-		&v.VideoURL, &v.CoverURL, &v.Duration, &v.Plays, &v.Likes, &v.CommentsCount, &v.Shares, &v.Tags, &v.Music, &v.CreatedAt)
+		&v.VideoURL, &v.CoverURL, &v.Duration, &v.Plays, &v.Likes, &v.CommentsCount, &v.Shares, &v.Tags, &v.Music, &v.ParentID, &v.CreatedAt)
 }
 
 func scanVideoRow(row *sql.Row, v *model.Video) error {
 	return row.Scan(&v.ID, &v.AuthorID, &v.AuthorName, &v.AuthorAvatar, &v.Title, &v.Description,
-		&v.VideoURL, &v.CoverURL, &v.Duration, &v.Plays, &v.Likes, &v.CommentsCount, &v.Shares, &v.Tags, &v.Music, &v.CreatedAt)
+		&v.VideoURL, &v.CoverURL, &v.Duration, &v.Plays, &v.Likes, &v.CommentsCount, &v.Shares, &v.Tags, &v.Music, &v.ParentID, &v.CreatedAt)
 }
 
 // annotateUserState marks liked/favorited flags for the given videos.

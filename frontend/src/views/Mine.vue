@@ -42,7 +42,10 @@ function fmtCount(n) {
       <van-icon name="setting-o" size="22" class="set-btn" />
       <div v-if="loggedIn && user" class="profile">
         <img class="avatar" :src="user.avatar || 'https://via.placeholder.com/80'" />
-        <div class="nick">{{ user.nickname || user.username }}</div>
+        <div class="nick">
+          {{ user.nickname || user.username }}
+          <span v-if="user.level" class="level-badge" :class="'lv-' + user.level">Lv.{{ user.level }} {{ user.level_title }}</span>
+        </div>
         <div class="uid">抖音号: {{ user.username }}</div>
         <div class="bio" v-if="user.bio">{{ user.bio }}</div>
         <div class="stats">
@@ -91,7 +94,14 @@ function fmtCount(n) {
 .profile { display: flex; flex-direction: column; align-items: center; }
 .avatar { width: 80px; height: 80px; border-radius: 50%; }
 .avatar-placeholder { width: 80px; height: 80px; border-radius: 50%; background: #333; display: flex; align-items: center; justify-content: center; color: #666; }
-.nick { color: #fff; font-size: 18px; font-weight: bold; margin-top: 10px; }
+.nick { color: #fff; font-size: 18px; font-weight: bold; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.level-badge { font-size: 11px; font-weight: normal; padding: 2px 8px; border-radius: 10px; color: #fff; }
+.lv-1 { background: #8d6e63; }
+.lv-2 { background: #9e9e9e; }
+.lv-3 { background: #ffc107; color: #333; }
+.lv-4 { background: #00bcd4; }
+.lv-5 { background: #9c27b0; }
+.lv-6 { background: linear-gradient(90deg, #fe2c55, #ffaa00); }
 .uid { color: #888; font-size: 12px; margin-top: 4px; }
 .bio { color: #ccc; font-size: 13px; margin-top: 8px; text-align: center; }
 .stats { display: flex; gap: 24px; margin-top: 14px; color: #999; font-size: 13px; }

@@ -89,6 +89,10 @@ export const getVideosByMusic = (id) => http.get(`/videos/music/${id}`).then((r)
 // ---- Following feed (关注 tab) ----
 export const getFollowingFeed = (limit = 20) => http.get('/videos/following', { params: { limit } }).then((r) => r.data.data)
 
+// ---- Duets (合拍) ----
+export const getDuets = (id) => http.get(`/videos/${id}/duets`).then((r) => r.data.data)
+export const createDuet = (id, payload) => http.post(`/videos/${id}/duet`, payload).then((r) => r.data)
+
 // ---- Comment likes ----
 export const likeComment = (id) => http.post(`/comments/${id}/like`).then((r) => r.data)
 

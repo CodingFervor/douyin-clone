@@ -44,6 +44,7 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 		api.GET("/videos/music/:id", h.VideosByMusic)
 		api.GET("/videos/:id", h.GetVideo)
 		api.GET("/videos/:id/comments", h.ListComments)
+		api.GET("/videos/:id/duets", h.ListDuets)
 		api.GET("/users/:id", h.GetUser)
 		api.GET("/users/:id/videos", h.UserVideos)
 		api.GET("/users/:id/followers", h.Followers)
@@ -62,6 +63,7 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 			auth.POST("/videos/:id/like", h.ToggleLike)
 			auth.POST("/videos/:id/favorite", h.ToggleFavorite)
 			auth.POST("/videos/:id/play", h.RecordPlay)
+			auth.POST("/videos/:id/duet", h.CreateDuet)
 			auth.GET("/users/me/favorites", h.FavoriteVideos)
 
 			auth.POST("/comments", h.CreateComment)

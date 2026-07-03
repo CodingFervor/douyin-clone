@@ -141,6 +141,7 @@ func (h *Handler) Profile(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
 		return
 	}
+	repository.ApplyLevel(u)
 	c.JSON(http.StatusOK, gin.H{"user": u})
 }
 
@@ -157,5 +158,6 @@ func (h *Handler) GetUser(c *gin.Context) {
 	}
 	curID, _ := h.currentUserID(c, true)
 	u.IsFollowing = h.Follow.IsFollowing(curID, id)
+	repository.ApplyLevel(u)
 	c.JSON(http.StatusOK, gin.H{"user": u})
 }

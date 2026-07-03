@@ -14,6 +14,7 @@ const routes = [
   { path: '/profile', name: 'profile', component: () => import('../views/EditProfile.vue'), meta: { auth: true } },
   { path: '/tag/:tag', name: 'hashtag', component: () => import('../views/HashtagPage.vue') },
   { path: '/music/:id', name: 'music', component: () => import('../views/MusicPage.vue') },
+  { path: '/duet/:id', name: 'duet', component: () => import('../views/DuetPage.vue') },
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })
