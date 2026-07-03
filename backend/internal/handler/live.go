@@ -28,6 +28,27 @@ func (h *Handler) ListLive(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": rooms})
 }
 
+// ListCities: GET /live/cities — distinct cities with live room counts (城市频道).
+func (h *Handler) ListCities(c *gin.Context) {
+	cities, err := h.Live.ListCities()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": cities})
+}
+
+// ListLiveByCity: GET /live/city/:city — live rooms in a city.
+func (h *Handler) ListLiveByCity(c *gin.Context) {
+	city := c.Param("city")
+	rooms, err := h.Live.ListByCity(city, 20)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": rooms})
+}
+
 // GetLive: GET /live/:id — room detail + pinned products (小黄车).
 func (h *Handler) GetLive(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)

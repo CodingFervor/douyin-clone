@@ -29,6 +29,8 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 		// Live streaming (public)
 		api.GET("/live", h.ListLive)
 		api.GET("/live/gifts", h.ListGifts)
+		api.GET("/live/cities", h.ListCities)
+		api.GET("/live/city/:city", h.ListLiveByCity)
 		api.GET("/live/:id", h.GetLive)
 		api.GET("/live/:id/messages", h.ListDanmaku)
 		api.GET("/live/:id/pk", h.GetActivePK)

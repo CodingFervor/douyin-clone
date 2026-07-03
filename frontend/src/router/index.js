@@ -16,6 +16,7 @@ const routes = [
   { path: '/music/:id', name: 'music', component: () => import('../views/MusicPage.vue') },
   { path: '/duet/:id', name: 'duet', component: () => import('../views/DuetPage.vue') },
   { path: '/nearby', name: 'nearby', component: () => import('../views/Nearby.vue') },
+  { path: '/city/:city', name: 'city', component: () => import('../views/CityPage.vue') },
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })

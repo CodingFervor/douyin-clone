@@ -149,6 +149,7 @@ func createTables() error {
 			likes INTEGER NOT NULL DEFAULT 0,
 			status TEXT NOT NULL DEFAULT 'live',
 			category TEXT NOT NULL DEFAULT '',
+			city TEXT NOT NULL DEFAULT '',
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_live_status ON live_rooms(status)`,
@@ -298,5 +299,7 @@ func migrate() error {
 	_, _ = DB.Exec(`ALTER TABLE users ADD COLUMN latitude REAL NOT NULL DEFAULT 0`)
 	_, _ = DB.Exec(`ALTER TABLE users ADD COLUMN longitude REAL NOT NULL DEFAULT 0`)
 	_, _ = DB.Exec(`ALTER TABLE users ADD COLUMN city TEXT NOT NULL DEFAULT ''`)
+	// Add city column to live_rooms (城市频道) — added after launch.
+	_, _ = DB.Exec(`ALTER TABLE live_rooms ADD COLUMN city TEXT NOT NULL DEFAULT ''`)
 	return nil
 }

@@ -94,6 +94,10 @@ export const dropRedPacket = (roomId, total, amountPer) => http.post(`/live/${ro
 export const getActiveRedPacket = (roomId) => http.get(`/live/${roomId}/redpacket`).then((r) => r.data.data)
 export const grabRedPacket = (roomId) => http.post(`/live/${roomId}/redpacket/grab`).then((r) => r.data)
 
+// ---- City channel (城市频道) ----
+export const getLiveCities = () => http.get('/live/cities').then((r) => r.data.data)
+export const getLiveByCity = (city) => http.get(`/live/city/${encodeURIComponent(city)}`).then((r) => r.data.data)
+
 // ---- Hashtags (#话题) ----
 export const getHotHashtags = () => http.get('/videos/hashtags').then((r) => r.data.data)
 export const getVideosByTag = (tag) => http.get(`/videos/tag/${encodeURIComponent(tag)}`).then((r) => r.data.data)

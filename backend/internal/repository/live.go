@@ -19,6 +19,7 @@ type LiveRoom struct {
 	Likes      int       `json:"likes"`
 	Status     string    `json:"status"`
 	Category   string    `json:"category"`
+	City       string    `json:"city"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
@@ -43,7 +44,7 @@ func (r *LiveRepo) ListLive(limit int) ([]LiveRoom, error) {
 		limit = 20
 	}
 	rows, err := r.db.Query(
-		`SELECT id, host_id, host_name, host_avatar, title, cover_url, stream_url, viewers, likes, status, category, created_at
+		`SELECT id, host_id, host_name, host_avatar, title, cover_url, stream_url, viewers, likes, status, category, city, created_at
 		 FROM live_rooms WHERE status='live' ORDER BY viewers DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -63,10 +64,10 @@ func (r *LiveRepo) ListLive(limit int) ([]LiveRoom, error) {
 func (r *LiveRepo) Get(id int64) (*LiveRoom, error) {
 	lr := &LiveRoom{}
 	err := r.db.QueryRow(
-		`SELECT id, host_id, host_name, host_avatar, title, cover_url, stream_url, viewers, likes, status, category, created_at
+		`SELECT id, host_id, host_name, host_avatar, title, cover_url, stream_url, viewers, likes, status, category, city, created_at
 		 FROM live_rooms WHERE id=?`, id).Scan(
 		&lr.ID, &lr.HostID, &lr.HostName, &lr.HostAvatar, &lr.Title, &lr.CoverURL, &lr.StreamURL,
-		&lr.Viewers, &lr.Likes, &lr.Status, &lr.Category, &lr.CreatedAt)
+		&lr.Viewers, &lr.Likes, &lr.Status, &lr.Category, &lr.City, &lr.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -111,15 +112,15 @@ func (r *LiveRepo) SeedLive() {
 	// Use a public HLS test stream as the mock live feed.
 	const hls = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
 	rooms := []LiveRoom{
-		{HostID: 2, HostName: "旅行的意义", HostAvatar: "https://api.dicebear.com/7.x/fun-emoji/svg?seed=travel", Title: "冰岛极光旅行直播中！", CoverURL: "https://picsum.photos/seed/live1/750/1000", StreamURL: hls, Viewers: 12800, Likes: 89000, Status: "live", Category: "旅行"},
-		{HostID: 3, HostName: "吃货日记", HostAvatar: "https://api.dicebear.com/7.x/fun-emoji/svg?seed=food", Title: "深夜食堂·家常红烧肉教学", CoverURL: "https://picsum.photos/seed/live2/750/1000", StreamURL: hls, Viewers: 25600, Likes: 150000, Status: "live", Category: "美食"},
-		{HostID: 4, HostName: "舞动青春", HostAvatar: "https://api.dicebear.com/7.x/fun-emoji/svg?seed=dance", Title: "热门舞蹈教学直播", CoverURL: "https://picsum.photos/seed/live3/750/1000", StreamURL: hls, Viewers: 8900, Likes: 56000, Status: "live", Category: "舞蹈"},
-		{HostID: 5, HostName: "萌宠乐园", HostAvatar: "https://api.dicebear.com/7.x/fun-emoji/svg?seed=pet", Title: "金毛在海边撒欢啦", CoverURL: "https://picsum.photos/seed/live4/750/1000", StreamURL: hls, Viewers: 15600, Likes: 98000, Status: "live", Category: "萌宠"},
+		{HostID: 2, HostName: "旅行的意义", HostAvatar: "https://api.dicebear.com/7.x/fun-emoji/svg?seed=travel", Title: "冰岛极光旅行直播中！", CoverURL: "https://picsum.photos/seed/live1/750/1000", StreamURL: hls, Viewers: 12800, Likes: 89000, Status: "live", Category: "旅行", City: "北京"},
+		{HostID: 3, HostName: "吃货日记", HostAvatar: "https://api.dicebear.com/7.x/fun-emoji/svg?seed=food", Title: "深夜食堂·家常红烧肉教学", CoverURL: "https://picsum.photos/seed/live2/750/1000", StreamURL: hls, Viewers: 25600, Likes: 150000, Status: "live", Category: "美食", City: "成都"},
+		{HostID: 4, HostName: "舞动青春", HostAvatar: "https://api.dicebear.com/7.x/fun-emoji/svg?seed=dance", Title: "热门舞蹈教学直播", CoverURL: "https://picsum.photos/seed/live3/750/1000", StreamURL: hls, Viewers: 8900, Likes: 56000, Status: "live", Category: "舞蹈", City: "上海"},
+		{HostID: 5, HostName: "萌宠乐园", HostAvatar: "https://api.dicebear.com/7.x/fun-emoji/svg?seed=pet", Title: "金毛在海边撒欢啦", CoverURL: "https://picsum.photos/seed/live4/750/1000", StreamURL: hls, Viewers: 15600, Likes: 98000, Status: "live", Category: "萌宠", City: "广州"},
 	}
 	for _, lr := range rooms {
 		res, _ := r.db.Exec(
-			`INSERT INTO live_rooms (host_id, host_name, host_avatar, title, cover_url, stream_url, viewers, likes, status, category) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-			lr.HostID, lr.HostName, lr.HostAvatar, lr.Title, lr.CoverURL, lr.StreamURL, lr.Viewers, lr.Likes, lr.Status, lr.Category)
+			`INSERT INTO live_rooms (host_id, host_name, host_avatar, title, cover_url, stream_url, viewers, likes, status, category, city) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			lr.HostID, lr.HostName, lr.HostAvatar, lr.Title, lr.CoverURL, lr.StreamURL, lr.Viewers, lr.Likes, lr.Status, lr.Category, lr.City)
 		id, _ := res.LastInsertId()
 		// Seed pinned products per room.
 		products := []LiveProduct{
@@ -137,7 +138,52 @@ func (r *LiveRepo) SeedLive() {
 
 func scanLive(rows *sql.Rows, lr *LiveRoom) error {
 	return rows.Scan(&lr.ID, &lr.HostID, &lr.HostName, &lr.HostAvatar, &lr.Title, &lr.CoverURL, &lr.StreamURL,
-		&lr.Viewers, &lr.Likes, &lr.Status, &lr.Category, &lr.CreatedAt)
+		&lr.Viewers, &lr.Likes, &lr.Status, &lr.Category, &lr.City, &lr.CreatedAt)
+}
+
+// ListByCity returns live rooms in a given city (城市频道).
+func (r *LiveRepo) ListByCity(city string, limit int) ([]LiveRoom, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := r.db.Query(
+		`SELECT id, host_id, host_name, host_avatar, title, cover_url, stream_url, viewers, likes, status, category, city, created_at
+		 FROM live_rooms WHERE status='live' AND city=? ORDER BY viewers DESC LIMIT ?`, city, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []LiveRoom{}
+	for rows.Next() {
+		var lr LiveRoom
+		if err := scanLive(rows, &lr); err == nil {
+			out = append(out, lr)
+		}
+	}
+	return out, nil
+}
+
+// ListCities returns the distinct cities that have live rooms, with counts.
+type CityCount struct {
+	City  string `json:"city"`
+	Count int    `json:"count"`
+}
+
+func (r *LiveRepo) ListCities() ([]CityCount, error) {
+	rows, err := r.db.Query(
+		`SELECT city, COUNT(*) AS cnt FROM live_rooms WHERE status='live' AND city != '' GROUP BY city ORDER BY cnt DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []CityCount{}
+	for rows.Next() {
+		var c CityCount
+		if rows.Scan(&c.City, &c.Count) == nil {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 
 // ===================== PK battles (直播PK) =====================
