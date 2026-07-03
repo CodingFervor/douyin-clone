@@ -15,6 +15,10 @@ const commentText = ref('')
 const currentVideoId = ref(null)
 const dragging = ref(false)
 const startY = ref(0)
+// Video progress (时长进度条)
+const progress = ref(0) // 0-100 for the current video
+const currentTime = ref('00:00')
+const duration = ref('00:00')
 
 onMounted(() => loadFeed('recommend'))
 onActivated(() => { if (!videos.value.length) loadFeed(activeTab.value) })
@@ -64,10 +68,26 @@ function playCurrent() {
         reportPlay(vid.id, 0.5)
         v.onended = () => reportPlay(vid.id, 1.0)
       }
+      // Reset + wire the progress bar.
+      progress.value = 0
+      v.ontimeupdate = () => {
+        if (v.duration > 0) {
+          progress.value = Math.min(100, (v.currentTime / v.duration) * 100)
+          currentTime.value = fmtTime(v.currentTime)
+          duration.value = fmtTime(v.duration)
+        }
+      }
     } else {
       v.pause()
     }
   })
+}
+
+function fmtTime(s) {
+  if (!s || isNaN(s)) return '00:00'
+  const m = Math.floor(s / 60)
+  const sec = Math.floor(s % 60)
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
 }
 
 function reportPlay(videoID, completion) {
@@ -228,6 +248,11 @@ function fmtCount(n) {
           <div class="disc"><van-icon name="music-o" /></div>
         </div>
         <!-- Bottom info -->
+        <!-- Video progress bar (only for the active slide) -->
+        <div v-if="i === index" class="progress-bar">
+          <div class="pb-track"><div class="pb-fill" :style="{ width: progress + '%' }"></div></div>
+          <span class="pb-time">{{ currentTime }} / {{ duration }}</span>
+        </div>
         <div class="bottom-info">
           <div class="author">@{{ v.author_name }}</div>
           <div class="title">{{ v.title }}</div>
@@ -295,6 +320,10 @@ function fmtCount(n) {
 .disc .van-icon { color: #25f4ee; font-size: 24px; }
 @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 .bottom-info { position: absolute; left: 12px; right: 76px; bottom: 20px; z-index: 10; }
+.progress-bar { position: absolute; left: 12px; right: 12px; bottom: 96px; z-index: 11; display: flex; align-items: center; gap: 8px; }
+.pb-track { flex: 1; height: 3px; background: rgba(255,255,255,0.3); border-radius: 2px; overflow: hidden; }
+.pb-fill { height: 100%; background: #fe2c55; transition: width 0.2s linear; }
+.pb-time { color: rgba(255,255,255,0.8); font-size: 11px; font-variant-numeric: tabular-nums; }
 .author { color: #fff; font-size: 15px; font-weight: bold; margin-bottom: 6px; }
 .title { color: #fff; font-size: 14px; line-height: 20px; margin-bottom: 6px; }
 .desc { color: rgba(255,255,255,0.85); font-size: 13px; line-height: 18px; margin-bottom: 6px; }

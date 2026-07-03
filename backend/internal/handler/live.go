@@ -264,3 +264,68 @@ func mustList(r *repository.LiveRepo, hostID int64) []repository.FanGuard {
 	list, _ := r.ListGuards(hostID, 10)
 	return list
 }
+
+// ===================== Red packets (红包雨) =====================
+
+// DropPacket: POST /live/:id/redpacket — host drops a red packet (requires auth).
+func (h *Handler) DropPacket(c *gin.Context) {
+	_, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	roomID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	var req struct {
+		Total     int `json:"total"`
+		AmountPer int `json:"amount_per"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	p, err := h.Live.DropPacket(roomID, req.Total, req.AmountPer)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "发送失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": p})
+}
+
+// ActivePacket: GET /live/:id/redpacket — the active red packet for a room (if any).
+func (h *Handler) ActivePacket(c *gin.Context) {
+	roomID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	p, err := h.Live.ActivePacket(roomID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": nil})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": p})
+}
+
+// GrabPacket: POST /live/:id/redpacket/grab — grab a share (requires auth).
+func (h *Handler) GrabPacket(c *gin.Context) {
+	uid, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	roomID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	p, _ := h.Live.ActivePacket(roomID)
+	if p == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "暂无红包"})
+		return
+	}
+	amount, err := h.Live.GrabPacket(p.ID, uid)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"amount": amount, "message": "抢到" + strconv.Itoa(amount) + "金币"})
+}

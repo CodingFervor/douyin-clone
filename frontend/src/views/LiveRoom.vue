@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showSuccessToast } from 'vant'
-import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts, startPK, getActivePK, scorePK, guardHost, getGuardStatus } from '../api'
+import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts, startPK, getActivePK, scorePK, guardHost, getGuardStatus, dropRedPacket, getActiveRedPacket, grabRedPacket } from '../api'
 
 const route = useRoute()
 const router = useRouter()
@@ -26,6 +26,9 @@ const pk = ref(null)
 // Fan guard
 const guardCount = ref(0)
 const isGuarding = ref(false)
+// Red packets (红包雨)
+const redPacket = ref(null)
+const fallingPackets = ref([])
 
 onMounted(async () => {
   try {
@@ -44,6 +47,7 @@ onMounted(async () => {
   // Load any active PK + guard status for this room.
   getActivePK(route.params.id).then((d) => { pk.value = d || null }).catch(() => {})
   getGuardStatus(route.params.id).then((d) => { guardCount.value = d.count || 0; isGuarding.value = !!d.guarding }).catch(() => {})
+  getActiveRedPacket(route.params.id).then((d) => { if (d) { redPacket.value = d; startRain() } }).catch(() => {})
   pollTimer = setInterval(pollMessages, 3000)
 })
 
@@ -129,6 +133,40 @@ async function doGuard() {
   }
 }
 
+// ---- Red packets (红包雨) ----
+async function doDropPacket() {
+  try {
+    const p = await dropRedPacket(route.params.id, 10, 10)
+    redPacket.value = p
+    startRain()
+    showSuccessToast('红包已发出！')
+  } catch (e) {
+    showToast('发送失败')
+  }
+}
+// Animate falling red packets across the screen.
+function startRain() {
+  let count = 0
+  const rain = setInterval(() => {
+    const id = Date.now() + Math.random()
+    fallingPackets.value.push({ id, left: Math.random() * 90 })
+    setTimeout(() => { fallingPackets.value = fallingPackets.value.filter((f) => f.id !== id) }, 3000)
+    count++
+    if (count > 12) clearInterval(rain)
+  }, 250)
+}
+async function grab() {
+  try {
+    const res = await grabRedPacket(route.params.id)
+    showSuccessToast(res.message)
+    // Refresh remaining.
+    redPacket.value = await getActiveRedPacket(route.params.id)
+    if (!redPacket.value) fallingPackets.value = []
+  } catch (e) {
+    showToast(e.response?.data?.error || '手慢了')
+  }
+}
+
 function scrollMsgs() {
   if (msgListRef.value) msgListRef.value.scrollTop = msgListRef.value.scrollHeight
 }
@@ -183,6 +221,15 @@ function fmt(n) {
 
     <!-- Guard count -->
     <div v-if="guardCount > 0" class="guard-info">🛡️ {{ guardCount }}人守护</div>
+
+    <!-- Red packet drop button + rain -->
+    <div v-if="!redPacket" class="rp-drop" @click="doDropPacket">🧧 发红包</div>
+    <div v-if="redPacket" class="rp-banner" @click="grab">
+      🧧 红包雨进行中 · 剩余 {{ redPacket.remaining }}/{{ redPacket.total }} · 点击抢
+    </div>
+    <div class="rp-rain">
+      <div v-for="f in fallingPackets" :key="f.id" class="rp-fall" :style="{ left: f.left + '%' }">🧧</div>
+    </div>
 
     <!-- Danmaku / chat list -->
     <div class="danmaku-layer" ref="msgListRef">
@@ -298,6 +345,11 @@ function fmt(n) {
 .pk-bar { width: 100%; height: 6px; background: #fe2c55; border-radius: 3px; overflow: hidden; }
 .pk-fill { height: 100%; background: #25f4ee; transition: width 0.3s; }
 .guard-info { position: absolute; top: 140px; left: 16px; z-index: 10; color: #9c27b0; font-size: 11px; background: rgba(0,0,0,0.5); padding: 2px 8px; border-radius: 10px; }
+.rp-drop { position: absolute; top: 140px; right: 16px; z-index: 10; background: rgba(255,0,54,0.85); color: #fff; font-size: 12px; padding: 4px 10px; border-radius: 12px; }
+.rp-banner { position: absolute; top: 168px; left: 12px; right: 12px; z-index: 10; background: linear-gradient(90deg, #ff0036, #ff9800); color: #fff; text-align: center; font-size: 12px; padding: 6px; border-radius: 16px; }
+.rp-rain { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 14; pointer-events: none; }
+.rp-fall { position: absolute; top: -40px; font-size: 28px; animation: rpFall 3s linear forwards; }
+@keyframes rpFall { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(100vh); opacity: 0.6; } }
 .hearts-layer { position: absolute; bottom: 100px; right: 24px; z-index: 15; pointer-events: none; }
 .floating-heart { font-size: 28px; color: #fe2c55; animation: floatUp 1.5s ease-out forwards; position: absolute; bottom: 0; right: 0; }
 @keyframes floatUp { 0% { transform: translateY(0) scale(0.8); opacity: 1; } 100% { transform: translateY(-200px) scale(1.2); opacity: 0; } }

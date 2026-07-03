@@ -89,6 +89,11 @@ export const endPK = (pkId) => http.post(`/live/${pkId}/pk/end`).then((r) => r.d
 export const guardHost = (roomId) => http.post(`/live/${roomId}/guard`).then((r) => r.data)
 export const getGuardStatus = (roomId) => http.get(`/live/${roomId}/guard`).then((r) => r.data)
 
+// ---- Red packets (红包雨) ----
+export const dropRedPacket = (roomId, total, amountPer) => http.post(`/live/${roomId}/redpacket`, { total, amount_per: amountPer }).then((r) => r.data.data)
+export const getActiveRedPacket = (roomId) => http.get(`/live/${roomId}/redpacket`).then((r) => r.data.data)
+export const grabRedPacket = (roomId) => http.post(`/live/${roomId}/redpacket/grab`).then((r) => r.data)
+
 // ---- Hashtags (#话题) ----
 export const getHotHashtags = () => http.get('/videos/hashtags').then((r) => r.data.data)
 export const getVideosByTag = (tag) => http.get(`/videos/tag/${encodeURIComponent(tag)}`).then((r) => r.data.data)

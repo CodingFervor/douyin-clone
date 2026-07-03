@@ -240,6 +240,26 @@ func createTables() error {
 			UNIQUE(user_id, host_id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_fanguards_host ON fan_guards(host_id)`,
+		// Red packets: a grab-bag of coins a host drops in a live room (红包雨).
+		`CREATE TABLE IF NOT EXISTS red_packets (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			room_id INTEGER NOT NULL,
+			total INTEGER NOT NULL DEFAULT 0,
+			remaining INTEGER NOT NULL DEFAULT 0,
+			amount_per INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'active',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_redpackets_room ON red_packets(room_id)`,
+		// Red packet claims: who grabbed which packet (防重复领取).
+		`CREATE TABLE IF NOT EXISTS red_packet_claims (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			packet_id INTEGER NOT NULL,
+			user_id INTEGER NOT NULL,
+			amount INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(packet_id, user_id)
+		)`,
 		// FTS5 full-text search over videos (title/description/tags/music).
 		`CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(title, description, tags, music, content='videos', content_rowid='id')`,
 		`CREATE TRIGGER IF NOT EXISTS videos_ai AFTER INSERT ON videos BEGIN

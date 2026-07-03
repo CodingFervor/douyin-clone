@@ -295,3 +295,79 @@ func (r *LiveRepo) ListGuards(hostID int64, limit int) ([]FanGuard, error) {
 	}
 	return out, nil
 }
+
+// ===================== Red packets (红包雨) =====================
+
+// RedPacket is a grab-bag of coins a host drops in a live room.
+type RedPacket struct {
+	ID        int64  `json:"id"`
+	RoomID    int64  `json:"room_id"`
+	Total     int    `json:"total"`
+	Remaining int    `json:"remaining"`
+	AmountPer int    `json:"amount_per"`
+	Status    string `json:"status"` // active, ended
+}
+
+// DropPacket creates a red packet in a room.
+func (r *LiveRepo) DropPacket(roomID int64, total, amountPer int) (*RedPacket, error) {
+	if total <= 0 {
+		total = 10
+	}
+	if amountPer <= 0 {
+		amountPer = 10
+	}
+	res, err := r.db.Exec(
+		`INSERT INTO red_packets (room_id, total, remaining, amount_per) VALUES (?,?,?,?)`,
+		roomID, total, total, amountPer)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return &RedPacket{ID: id, RoomID: roomID, Total: total, Remaining: total, AmountPer: amountPer, Status: "active"}, nil
+}
+
+// ActivePacket returns the in-progress red packet for a room (if any).
+func (r *LiveRepo) ActivePacket(roomID int64) (*RedPacket, error) {
+	p := &RedPacket{}
+	err := r.db.QueryRow(
+		`SELECT id, room_id, total, remaining, amount_per, status FROM red_packets
+		 WHERE room_id=? AND status='active' AND remaining > 0 ORDER BY id DESC LIMIT 1`, roomID,
+	).Scan(&p.ID, &p.RoomID, &p.Total, &p.Remaining, &p.AmountPer, &p.Status)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return p, err
+}
+
+// GrabPacket lets a user claim one share of a red packet (transactional: dedup
+// via UNIQUE + decrement remaining). Returns the amount won, or 0 if sold out.
+func (r *LiveRepo) GrabPacket(packetID, userID int64) (int, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var remaining, amountPer int
+	err = tx.QueryRow(`SELECT remaining, amount_per FROM red_packets WHERE id=? AND status='active'`, packetID).Scan(&remaining, &amountPer)
+	if err != nil {
+		return 0, fmt.Errorf("红包不存在")
+	}
+	if remaining <= 0 {
+		return 0, fmt.Errorf("红包已抢完")
+	}
+	if _, err := tx.Exec(`INSERT INTO red_packet_claims (packet_id, user_id, amount) VALUES (?,?,?)`, packetID, userID, amountPer); err != nil {
+		return 0, fmt.Errorf("您已抢过该红包")
+	}
+	if _, err := tx.Exec(`UPDATE red_packets SET remaining = remaining - 1 WHERE id=?`, packetID); err != nil {
+		return 0, err
+	}
+	if remaining-1 <= 0 {
+		if _, err := tx.Exec(`UPDATE red_packets SET status='ended' WHERE id=?`, packetID); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return amountPer, nil
+}
