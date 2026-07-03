@@ -47,6 +47,9 @@ func createTables() error {
 			nickname TEXT NOT NULL DEFAULT '',
 			avatar TEXT NOT NULL DEFAULT '',
 			bio TEXT NOT NULL DEFAULT '',
+			latitude REAL NOT NULL DEFAULT 0,
+			longitude REAL NOT NULL DEFAULT 0,
+			city TEXT NOT NULL DEFAULT '',
 			following_count INTEGER NOT NULL DEFAULT 0,
 			followers_count INTEGER NOT NULL DEFAULT 0,
 			likes_count INTEGER NOT NULL DEFAULT 0,
@@ -66,6 +69,7 @@ func createTables() error {
 			shares INTEGER NOT NULL DEFAULT 0,
 			tags TEXT NOT NULL DEFAULT '',
 			music TEXT NOT NULL DEFAULT '原声',
+			filter TEXT NOT NULL DEFAULT 'none',
 			parent_id INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -247,5 +251,11 @@ func migrate() error {
 	_, _ = DB.Exec(`INSERT INTO videos_fts(videos_fts) VALUES ('rebuild')`)
 	// Add parent_id to videos (for duets/合拍) — added after launch.
 	_, _ = DB.Exec(`ALTER TABLE videos ADD COLUMN parent_id INTEGER NOT NULL DEFAULT 0`)
+	// Add filter to videos (特效滤镜) — added after launch.
+	_, _ = DB.Exec(`ALTER TABLE videos ADD COLUMN filter TEXT NOT NULL DEFAULT 'none'`)
+	// Add LBS columns to users (附近的人) — added after launch.
+	_, _ = DB.Exec(`ALTER TABLE users ADD COLUMN latitude REAL NOT NULL DEFAULT 0`)
+	_, _ = DB.Exec(`ALTER TABLE users ADD COLUMN longitude REAL NOT NULL DEFAULT 0`)
+	_, _ = DB.Exec(`ALTER TABLE users ADD COLUMN city TEXT NOT NULL DEFAULT ''`)
 	return nil
 }

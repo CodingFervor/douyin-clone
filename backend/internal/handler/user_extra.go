@@ -149,3 +149,49 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"user": u})
 }
+
+// ===================== Nearby users (LBS / 附近的人) =====================
+
+// UpdateLocation: PUT /auth/location — record the user's GPS + city.
+func (h *Handler) UpdateLocation(c *gin.Context) {
+	uid, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	var req struct {
+		Latitude  float64 `json:"latitude"`
+		Longitude float64 `json:"longitude"`
+		City      string  `json:"city"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数不合法"})
+		return
+	}
+	if err := h.User.UpdateLocation(uid, req.Latitude, req.Longitude, req.City); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "更新失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "位置已更新"})
+}
+
+// ListNearby: GET /users/nearby — other users near the current user (or a query point).
+func (h *Handler) ListNearby(c *gin.Context) {
+	uid, ok := h.currentUserID(c, true)
+	if !ok {
+		return
+	}
+	// Default to the user's stored location; allow a query override.
+	lat, _ := strconv.ParseFloat(c.Query("lat"), 64)
+	lng, _ := strconv.ParseFloat(c.Query("lng"), 64)
+	if lat == 0 && lng == 0 && uid > 0 {
+		if u, _ := h.User.Get(uid); u != nil {
+			lat, lng = u.Latitude, u.Longitude
+		}
+	}
+	list, err := h.User.ListNearby(uid, lat, lng, 20)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list})
+}

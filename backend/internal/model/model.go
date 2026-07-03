@@ -9,6 +9,9 @@ type User struct {
 	Nickname       string    `json:"nickname"`
 	Avatar         string    `json:"avatar"`
 	Bio            string    `json:"bio"`
+	Latitude       float64   `json:"latitude"`
+	Longitude      float64   `json:"longitude"`
+	City           string    `json:"city"`
 	FollowingCount int       `json:"following_count"`
 	FollowersCount int       `json:"followers_count"`
 	LikesCount     int       `json:"likes_count"`
@@ -34,6 +37,7 @@ type Video struct {
 	Shares        int       `json:"shares"`
 	Tags          string    `json:"tags"`
 	Music         string    `json:"music"`
+	Filter        string    `json:"filter"`    // CSS filter name (none/vintage/warm/cool/mono/vivid)
 	ParentID      int64     `json:"parent_id"` // >0 means this is a duet (合拍) of that video
 	Liked         bool      `json:"liked"`
 	Favorited     bool      `json:"favorited"`
@@ -80,6 +84,7 @@ type VideoInput struct {
 	Duration    int    `json:"duration"`
 	Tags        string `json:"tags"`
 	Music       string `json:"music"`
+	Filter      string `json:"filter"`
 }
 
 // Hashtag is an aggregated topic tag (#话题) ranked by usage.

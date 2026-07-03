@@ -95,10 +95,11 @@ func (h *Handler) UploadVideoFile(c *gin.Context) {
 	if music == "" {
 		music = "原声"
 	}
+	filter := c.PostForm("filter")
 	// Build the public URL (served by the static route /uploads).
 	videoURL := "/uploads/" + filename
 
-	id, err := h.Video.CreateRaw(uid, title, desc, videoURL, coverURL, tags, music)
+	id, err := h.Video.CreateRaw(uid, title, desc, videoURL, coverURL, tags, music, filter)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "创建视频记录失败"})
 		return

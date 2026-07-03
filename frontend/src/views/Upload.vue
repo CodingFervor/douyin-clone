@@ -23,7 +23,15 @@ const mode = ref('file')
 const file = ref(null)
 const uploading = ref(false)
 const progress = ref(0)
-const form = ref({ title: '', description: '', video_url: '', cover_url: '', tags: '', music: '原声' })
+const form = ref({ title: '', description: '', video_url: '', cover_url: '', tags: '', music: '原声', filter: 'none' })
+const filters = [
+  { value: 'none', label: '原图' },
+  { value: 'vintage', label: '复古' },
+  { value: 'warm', label: '暖阳' },
+  { value: 'cool', label: '清冷' },
+  { value: 'mono', label: '黑白' },
+  { value: 'vivid', label: '鲜艳' },
+]
 
 function onFile(item) {
   file.value = item.file
@@ -43,6 +51,7 @@ async function submit() {
       fd.append('cover_url', form.value.cover_url)
       fd.append('tags', form.value.tags)
       fd.append('music', form.value.music)
+      fd.append('filter', form.value.filter)
       await uploadVideoFile(fd, (e) => {
         if (e.total) progress.value = Math.round((e.loaded / e.total) * 100)
       })
@@ -100,6 +109,12 @@ async function submit() {
       </van-field>
       <van-field v-model="form.tags" label="话题" placeholder="旅行,美食 (逗号分隔)" label-width="80" />
       <van-field v-model="form.music" label="音乐" placeholder="原声" label-width="80" />
+      <div class="filter-row">
+        <span class="fr-label">滤镜</span>
+        <div class="fr-chips">
+          <span v-for="f in filters" :key="f.value" class="fr-chip" :class="{ active: form.filter === f.value }" @click="form.filter = f.value">{{ f.label }}</span>
+        </div>
+      </div>
     </van-cell-group>
 
     <van-progress v-if="uploading" :percentage="progress" color="#fe2c55" style="margin: 12px 24px; width: calc(100% - 48px)" />
@@ -117,4 +132,9 @@ async function submit() {
 .upload-page :deep(input), .upload-page :deep(textarea) { color: #fff !important; }
 .upload-page :deep(.van-tabs__nav) { background: #161616 !important; }
 .file-name { max-width: 180px; color: #25f4ee; font-size: 12px; }
+.filter-row { padding: 12px 16px; }
+.fr-label { color: #ccc; font-size: 14px; }
+.fr-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.fr-chip { padding: 6px 14px; border-radius: 16px; background: #222; color: #fff; font-size: 13px; }
+.fr-chip.active { background: #fe2c55; }
 </style>

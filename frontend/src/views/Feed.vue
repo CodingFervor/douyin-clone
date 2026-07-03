@@ -191,6 +191,7 @@ function fmtCount(n) {
       >
         <video
           class="feed-video"
+          :class="'filter-' + (v.filter || 'none')"
           :src="v.video_url"
           :poster="v.cover_url"
           loop
@@ -277,6 +278,13 @@ function fmtCount(n) {
 .video-stack { height: 100%; position: relative; }
 .video-slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transition: transform 0.35s ease; }
 .feed-video { width: 100%; height: 100%; object-fit: cover; background: #000; }
+/* CSS-based video filters (特效滤镜) — applied via v.filter class */
+.feed-video.filter-none { filter: none; }
+.feed-video.filter-vintage { filter: sepia(0.5) contrast(1.1) brightness(1.05); }
+.feed-video.filter-warm { filter: saturate(1.3) hue-rotate(-10deg) brightness(1.05); }
+.feed-video.filter-cool { filter: saturate(1.1) hue-rotate(15deg) brightness(0.98); }
+.feed-video.filter-mono { filter: grayscale(1) contrast(1.1); }
+.feed-video.filter-vivid { filter: saturate(1.8) contrast(1.15); }
 .action-rail { position: absolute; right: 10px; bottom: 100px; display: flex; flex-direction: column; align-items: center; gap: 18px; z-index: 10; }
 .avatar-wrap { position: relative; margin-bottom: 6px; }
 .avatar { width: 48px; height: 48px; border-radius: 50%; border: 2px solid #fff; }

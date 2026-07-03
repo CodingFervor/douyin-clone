@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -29,8 +30,8 @@ func (r *UserRepo) Create(u *model.User) error {
 func (r *UserRepo) FindByUsername(username string) (*model.User, error) {
 	u := &model.User{}
 	err := r.db.QueryRow(
-		`SELECT id, username, password, nickname, avatar, bio, following_count, followers_count, likes_count, created_at FROM users WHERE username=?`, username,
-	).Scan(&u.ID, &u.Username, &u.Password, &u.Nickname, &u.Avatar, &u.Bio, &u.FollowingCount, &u.FollowersCount, &u.LikesCount, &u.CreatedAt)
+		`SELECT id, username, password, nickname, avatar, bio, latitude, longitude, city, following_count, followers_count, likes_count, created_at FROM users WHERE username=?`, username,
+	).Scan(&u.ID, &u.Username, &u.Password, &u.Nickname, &u.Avatar, &u.Bio, &u.Latitude, &u.Longitude, &u.City, &u.FollowingCount, &u.FollowersCount, &u.LikesCount, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -40,8 +41,8 @@ func (r *UserRepo) FindByUsername(username string) (*model.User, error) {
 func (r *UserRepo) Get(id int64) (*model.User, error) {
 	u := &model.User{}
 	err := r.db.QueryRow(
-		`SELECT id, username, password, nickname, avatar, bio, following_count, followers_count, likes_count, created_at FROM users WHERE id=?`, id,
-	).Scan(&u.ID, &u.Username, &u.Password, &u.Nickname, &u.Avatar, &u.Bio, &u.FollowingCount, &u.FollowersCount, &u.LikesCount, &u.CreatedAt)
+		`SELECT id, username, password, nickname, avatar, bio, latitude, longitude, city, following_count, followers_count, likes_count, created_at FROM users WHERE id=?`, id,
+	).Scan(&u.ID, &u.Username, &u.Password, &u.Nickname, &u.Avatar, &u.Bio, &u.Latitude, &u.Longitude, &u.City, &u.FollowingCount, &u.FollowersCount, &u.LikesCount, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -116,6 +117,53 @@ func (r *UserRepo) UpdateProfile(u *model.User) error {
 	return nil
 }
 
+// UpdateLocation stores a user's last-known GPS coordinates + city (LBS).
+func (r *UserRepo) UpdateLocation(userID int64, lat, lng float64, city string) error {
+	_, err := r.db.Exec(`UPDATE users SET latitude=?, longitude=?, city=? WHERE id=?`, lat, lng, city, userID)
+	return err
+}
+
+// ListNearby returns other users with a recorded location, ordered by proximity
+// to the given coordinates. Distance is a rough great-circle estimate (km).
+type NearbyUser struct {
+	model.User
+	Distance float64 `json:"distance"` // km
+}
+
+func (r *UserRepo) ListNearby(userID int64, lat, lng float64, limit int) ([]NearbyUser, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := r.db.Query(
+		`SELECT id, username, nickname, avatar, bio, latitude, longitude, city, following_count, followers_count, likes_count, created_at
+		 FROM users WHERE id != ? AND latitude != 0 AND longitude != 0
+		 ORDER BY (latitude-?)*(latitude-?) + (longitude-?)*(longitude-?) ASC LIMIT ?`,
+		userID, lat, lat, lng, lng, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []NearbyUser{}
+	for rows.Next() {
+		var nu NearbyUser
+		if err := rows.Scan(&nu.ID, &nu.Username, &nu.Nickname, &nu.Avatar, &nu.Bio, &nu.Latitude, &nu.Longitude, &nu.City,
+			&nu.FollowingCount, &nu.FollowersCount, &nu.LikesCount, &nu.CreatedAt); err == nil {
+			nu.Distance = haversine(lat, lng, nu.Latitude, nu.Longitude)
+			out = append(out, nu)
+		}
+	}
+	return out, nil
+}
+
+// haversine returns the great-circle distance between two lat/lng points in km.
+func haversine(lat1, lng1, lat2, lng2 float64) float64 {
+	const r = 6371.0 // earth radius km
+	dLat := (lat2 - lat1) * 3.141592653589793 / 180
+	dLng := (lng2 - lng1) * 3.141592653589793 / 180
+	a := 0.5 - math.Cos(dLat)/2 + math.Cos(lat1*3.141592653589793/180)*math.Cos(lat2*3.141592653589793/180)*(0.5-math.Cos(dLng)/2)
+	return 2 * r * math.Asin(math.Sqrt(a))
+}
+
 // ===================== Video =====================
 
 type VideoRepo struct{ db *sql.DB }
@@ -131,7 +179,7 @@ func (r *VideoRepo) Feed(limit int, currentUserID int64) ([]model.Video, error) 
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.parent_id, v.created_at
+		        v.shares, v.tags, v.music, v.filter, v.parent_id, v.created_at
 		 FROM videos v JOIN users u ON u.id = v.author_id
 		 ORDER BY v.id DESC LIMIT ?`, limit)
 	if err != nil {
@@ -154,7 +202,7 @@ func (r *VideoRepo) ListByAuthor(authorID, currentUserID int64) ([]model.Video, 
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.parent_id, v.created_at
+		        v.shares, v.tags, v.music, v.filter, v.parent_id, v.created_at
 		 FROM videos v JOIN users u ON u.id = v.author_id
 		 WHERE v.author_id=? ORDER BY v.id DESC`, authorID)
 	if err != nil {
@@ -177,7 +225,7 @@ func (r *VideoRepo) ListFavorites(userID int64) ([]model.Video, error) {
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.parent_id, v.created_at
+		        v.shares, v.tags, v.music, v.filter, v.parent_id, v.created_at
 		 FROM favorites f
 		 JOIN videos v ON v.id = f.video_id
 		 JOIN users u ON u.id = v.author_id
@@ -202,7 +250,7 @@ func (r *VideoRepo) Get(id, currentUserID int64) (*model.Video, error) {
 	row := r.db.QueryRow(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.parent_id, v.created_at
+		        v.shares, v.tags, v.music, v.filter, v.parent_id, v.created_at
 		 FROM videos v JOIN users u ON u.id = v.author_id WHERE v.id=?`, id)
 	if err := scanVideoRow(row, v); err != nil {
 		if err == sql.ErrNoRows {
@@ -225,9 +273,9 @@ func (r *VideoRepo) Get(id, currentUserID int64) (*model.Video, error) {
 
 func (r *VideoRepo) Create(v *model.VideoInput, authorID int64) (int64, error) {
 	res, err := r.db.Exec(
-		`INSERT INTO videos (author_id, title, description, video_url, cover_url, duration, tags, music)
-		 VALUES (?,?,?,?,?,?,?,?)`,
-		authorID, v.Title, v.Description, v.VideoURL, v.CoverURL, v.Duration, v.Tags, defaultStr(v.Music, "原声"))
+		`INSERT INTO videos (author_id, title, description, video_url, cover_url, duration, tags, music, filter)
+		 VALUES (?,?,?,?,?,?,?,?,?)`,
+		authorID, v.Title, v.Description, v.VideoURL, v.CoverURL, v.Duration, v.Tags, defaultStr(v.Music, "原声"), defaultStr(v.Filter, "none"))
 	if err != nil {
 		return 0, err
 	}
@@ -236,11 +284,11 @@ func (r *VideoRepo) Create(v *model.VideoInput, authorID int64) (int64, error) {
 
 // CreateRaw inserts a video from explicit fields (used by the multipart upload
 // handler which receives form fields rather than a JSON DTO).
-func (r *VideoRepo) CreateRaw(authorID int64, title, description, videoURL, coverURL, tags, music string) (int64, error) {
+func (r *VideoRepo) CreateRaw(authorID int64, title, description, videoURL, coverURL, tags, music, filter string) (int64, error) {
 	res, err := r.db.Exec(
-		`INSERT INTO videos (author_id, title, description, video_url, cover_url, tags, music)
-		 VALUES (?,?,?,?,?,?,?)`,
-		authorID, title, description, videoURL, coverURL, tags, defaultStr(music, "原声"))
+		`INSERT INTO videos (author_id, title, description, video_url, cover_url, tags, music, filter)
+		 VALUES (?,?,?,?,?,?,?,?)`,
+		authorID, title, description, videoURL, coverURL, tags, defaultStr(music, "原声"), defaultStr(filter, "none"))
 	if err != nil {
 		return 0, err
 	}
@@ -282,7 +330,7 @@ func (r *VideoRepo) ListDuets(parentID int64, limit int, currentUserID int64) ([
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.parent_id, v.created_at
+		        v.shares, v.tags, v.music, v.filter, v.parent_id, v.created_at
 		 FROM videos v JOIN users u ON u.id = v.author_id
 		 WHERE v.parent_id=? ORDER BY v.likes DESC LIMIT ?`, parentID, limit)
 	if err != nil {
@@ -330,7 +378,7 @@ func (r *VideoRepo) Search(q string, limit int, currentUserID int64) ([]model.Vi
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.parent_id, v.created_at
+		        v.shares, v.tags, v.music, v.filter, v.parent_id, v.created_at
 		 FROM videos_fts f JOIN videos v ON v.id = f.rowid JOIN users u ON u.id = v.author_id
 		 WHERE videos_fts MATCH ? ORDER BY v.likes DESC LIMIT ?`, matchExpr, limit)
 	if err != nil {
@@ -338,7 +386,7 @@ func (r *VideoRepo) Search(q string, limit int, currentUserID int64) ([]model.Vi
 		rows, err = r.db.Query(
 			`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 			        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-			        v.shares, v.tags, v.music, v.parent_id, v.created_at
+			        v.shares, v.tags, v.music, v.filter, v.parent_id, v.created_at
 			 FROM videos v JOIN users u ON u.id = v.author_id
 			 WHERE v.title LIKE ? OR v.description LIKE ? OR v.tags LIKE ?
 			 ORDER BY v.likes DESC LIMIT ?`, "%"+q+"%", "%"+q+"%", "%"+q+"%", limit)
@@ -391,7 +439,7 @@ func (r *VideoRepo) ListByTag(tag string, limit int, currentUserID int64) ([]mod
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.parent_id, v.created_at
+		        v.shares, v.tags, v.music, v.filter, v.parent_id, v.created_at
 		 FROM videos v JOIN users u ON u.id = v.author_id
 		 WHERE ',' || REPLACE(v.tags, ' ', ',') || ',' LIKE ?
 		 ORDER BY v.likes DESC LIMIT ?`, "%,"+tag+",%", limit)
@@ -422,7 +470,7 @@ func (r *VideoRepo) ListByMusic(music string, excludeID int64, limit int, curren
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.parent_id, v.created_at
+		        v.shares, v.tags, v.music, v.filter, v.parent_id, v.created_at
 		 FROM videos v JOIN users u ON u.id = v.author_id
 		 WHERE v.music=? AND v.id != ?
 		 ORDER BY v.likes DESC LIMIT ?`, music, excludeID, limit)
@@ -450,7 +498,7 @@ func (r *VideoRepo) ListFollowingFeed(userID int64, limit int) ([]model.Video, e
 	rows, err := r.db.Query(
 		`SELECT v.id, v.author_id, u.nickname, u.avatar, v.title, v.description,
 		        v.video_url, v.cover_url, v.duration, v.plays, v.likes, v.comments_count,
-		        v.shares, v.tags, v.music, v.parent_id, v.created_at
+		        v.shares, v.tags, v.music, v.filter, v.parent_id, v.created_at
 		 FROM videos v JOIN users u ON u.id = v.author_id
 		 JOIN follows f ON f.followee_id = v.author_id
 		 WHERE f.follower_id=? AND u.id != ?
@@ -472,12 +520,12 @@ func (r *VideoRepo) ListFollowingFeed(userID int64, limit int) ([]model.Video, e
 
 func scanVideo(rows *sql.Rows, v *model.Video) error {
 	return rows.Scan(&v.ID, &v.AuthorID, &v.AuthorName, &v.AuthorAvatar, &v.Title, &v.Description,
-		&v.VideoURL, &v.CoverURL, &v.Duration, &v.Plays, &v.Likes, &v.CommentsCount, &v.Shares, &v.Tags, &v.Music, &v.ParentID, &v.CreatedAt)
+		&v.VideoURL, &v.CoverURL, &v.Duration, &v.Plays, &v.Likes, &v.CommentsCount, &v.Shares, &v.Tags, &v.Music, &v.Filter, &v.ParentID, &v.CreatedAt)
 }
 
 func scanVideoRow(row *sql.Row, v *model.Video) error {
 	return row.Scan(&v.ID, &v.AuthorID, &v.AuthorName, &v.AuthorAvatar, &v.Title, &v.Description,
-		&v.VideoURL, &v.CoverURL, &v.Duration, &v.Plays, &v.Likes, &v.CommentsCount, &v.Shares, &v.Tags, &v.Music, &v.ParentID, &v.CreatedAt)
+		&v.VideoURL, &v.CoverURL, &v.Duration, &v.Plays, &v.Likes, &v.CommentsCount, &v.Shares, &v.Tags, &v.Music, &v.Filter, &v.ParentID, &v.CreatedAt)
 }
 
 // annotateUserState marks liked/favorited flags for the given videos.

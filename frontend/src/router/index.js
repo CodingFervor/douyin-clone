@@ -15,6 +15,7 @@ const routes = [
   { path: '/tag/:tag', name: 'hashtag', component: () => import('../views/HashtagPage.vue') },
   { path: '/music/:id', name: 'music', component: () => import('../views/MusicPage.vue') },
   { path: '/duet/:id', name: 'duet', component: () => import('../views/DuetPage.vue') },
+  { path: '/nearby', name: 'nearby', component: () => import('../views/Nearby.vue') },
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })
