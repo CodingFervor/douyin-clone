@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showSuccessToast } from 'vant'
-import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts } from '../api'
+import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts, startPK, getActivePK, scorePK, guardHost, getGuardStatus } from '../api'
 
 const route = useRoute()
 const router = useRouter()
@@ -21,6 +21,11 @@ let pollTimer = null
 const gifts = ref([])
 const showGifts = ref(false)
 const flyingGifts = ref([])
+// PK battle
+const pk = ref(null)
+// Fan guard
+const guardCount = ref(0)
+const isGuarding = ref(false)
 
 onMounted(async () => {
   try {
@@ -36,6 +41,9 @@ onMounted(async () => {
   }
   // Load the gift catalog (best-effort).
   getLiveGifts().then((data) => { gifts.value = data || [] }).catch(() => {})
+  // Load any active PK + guard status for this room.
+  getActivePK(route.params.id).then((d) => { pk.value = d || null }).catch(() => {})
+  getGuardStatus(route.params.id).then((d) => { guardCount.value = d.count || 0; isGuarding.value = !!d.guarding }).catch(() => {})
   pollTimer = setInterval(pollMessages, 3000)
 })
 
@@ -84,6 +92,43 @@ function sendGift(g) {
   showSuccessToast(`送出 ${g.icon} ${g.name}`)
 }
 
+// ---- PK ----
+async function doStartPK() {
+  try {
+    pk.value = await startPK(route.params.id)
+    showSuccessToast('PK已开始！为你的主播加油')
+  } catch (e) {
+    showToast(e.response?.data?.error || 'PK失败')
+  }
+}
+async function cheer(side) {
+  if (!pk.value) return
+  try {
+    pk.value = await scorePK(pk.value.id, side, 10)
+  } catch (e) {
+    showToast('加油失败')
+  }
+}
+function pkPercent() {
+  if (!pk.value) return 50
+  const total = pk.value.score_a + pk.value.score_b
+  if (total === 0) return 50
+  return Math.round((pk.value.score_a / total) * 100)
+}
+
+// ---- Fan guard ----
+async function doGuard() {
+  try {
+    const res = await guardHost(route.params.id)
+    isGuarding.value = res.guarding
+    guardCount.value = res.count
+    showSuccessToast(res.guarding ? '守护成功！' : '已取消守护')
+  } catch (e) {
+    showToast('请先登录')
+    router.push('/login')
+  }
+}
+
 function scrollMsgs() {
   if (msgListRef.value) msgListRef.value.scrollTop = msgListRef.value.scrollHeight
 }
@@ -113,10 +158,31 @@ function fmt(n) {
         </div>
       </div>
       <van-button size="mini" round color="#fe2c55" @click="showToast('关注成功')">+ 关注</van-button>
+      <van-button size="mini" round :color="isGuarding ? '#9c27b0' : '#333'" @click="doGuard">{{ isGuarding ? '已守护' : '守护' }}</van-button>
     </div>
 
     <!-- Title -->
     <div class="room-title">{{ room.title }}</div>
+
+    <!-- PK banner -->
+    <div v-if="pk" class="pk-banner">
+      <div class="pk-side pk-left" @click="cheer('a')">
+        <span class="pk-name">{{ pk.room_a_name }}</span>
+        <span class="pk-score">{{ pk.score_a }}</span>
+      </div>
+      <div class="pk-bar-wrap">
+        <div class="pk-vs">PK</div>
+        <div class="pk-bar"><div class="pk-fill" :style="{ width: pkPercent() + '%' }"></div></div>
+      </div>
+      <div class="pk-side pk-right" @click="cheer('b')">
+        <span class="pk-score">{{ pk.score_b }}</span>
+        <span class="pk-name">{{ pk.room_b_name }}</span>
+      </div>
+    </div>
+    <div v-else class="pk-start" @click="doStartPK">⚔️ 发起PK</div>
+
+    <!-- Guard count -->
+    <div v-if="guardCount > 0" class="guard-info">🛡️ {{ guardCount }}人守护</div>
 
     <!-- Danmaku / chat list -->
     <div class="danmaku-layer" ref="msgListRef">
@@ -222,6 +288,16 @@ function fmt(n) {
 .host-name { color: #fff; font-size: 14px; font-weight: bold; }
 .host-viewers { color: rgba(255,255,255,0.7); font-size: 11px; }
 .room-title { position: absolute; top: 70px; left: 16px; right: 60px; color: #fff; font-size: 15px; font-weight: bold; text-shadow: 0 1px 3px rgba(0,0,0,0.5); z-index: 10; }
+.pk-start { position: absolute; top: 100px; left: 16px; z-index: 10; background: rgba(254,44,85,0.8); color: #fff; font-size: 12px; padding: 4px 12px; border-radius: 12px; }
+.pk-banner { position: absolute; top: 100px; left: 12px; right: 12px; z-index: 10; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.6); border-radius: 20px; padding: 6px 12px; }
+.pk-side { display: flex; align-items: center; gap: 6px; cursor: pointer; flex: 0 0 auto; }
+.pk-name { color: #fff; font-size: 11px; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-score { color: #fe2c55; font-size: 14px; font-weight: bold; }
+.pk-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.pk-vs { color: #ffd700; font-size: 11px; font-weight: bold; }
+.pk-bar { width: 100%; height: 6px; background: #fe2c55; border-radius: 3px; overflow: hidden; }
+.pk-fill { height: 100%; background: #25f4ee; transition: width 0.3s; }
+.guard-info { position: absolute; top: 140px; left: 16px; z-index: 10; color: #9c27b0; font-size: 11px; background: rgba(0,0,0,0.5); padding: 2px 8px; border-radius: 10px; }
 .hearts-layer { position: absolute; bottom: 100px; right: 24px; z-index: 15; pointer-events: none; }
 .floating-heart { font-size: 28px; color: #fe2c55; animation: floatUp 1.5s ease-out forwards; position: absolute; bottom: 0; right: 0; }
 @keyframes floatUp { 0% { transform: translateY(0) scale(0.8); opacity: 1; } 100% { transform: translateY(-200px) scale(1.2); opacity: 0; } }

@@ -138,3 +138,129 @@ func (h *Handler) ListGifts(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"data": list})
 }
+
+// ===================== PK battles (直播PK) =====================
+
+// StartPK: POST /live/:id/pk — start a PK against a random opponent (requires auth).
+func (h *Handler) StartPK(c *gin.Context) {
+	_, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	roomID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	pk, err := h.Live.StartPK(roomID, 0)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": pk})
+}
+
+// GetActivePK: GET /live/:id/pk — the in-progress PK for a room (if any).
+func (h *Handler) GetActivePK(c *gin.Context) {
+	roomID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	pk, err := h.Live.GetActivePK(roomID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": nil})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": pk})
+}
+
+// ScorePK: POST /live/:id/pk/score — add points to side a or b (requires auth).
+func (h *Handler) ScorePK(c *gin.Context) {
+	_, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	pkID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	var req struct {
+		Side   string `json:"side"`
+		Points int    `json:"points"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	if req.Points <= 0 {
+		req.Points = 10
+	}
+	pk, err := h.Live.ScorePK(pkID, req.Side, req.Points)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "加分失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": pk})
+}
+
+// EndPK: POST /live/:id/pk/end — finalize a PK (requires auth).
+func (h *Handler) EndPK(c *gin.Context) {
+	_, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	pkID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	_ = h.Live.EndPK(pkID)
+	c.JSON(http.StatusOK, gin.H{"message": "PK已结束"})
+}
+
+// ===================== Fan guards (粉丝勋章/守护) =====================
+
+// GuardHost: POST /live/:id/guard — toggle 守护 a host (requires auth).
+func (h *Handler) GuardHost(c *gin.Context) {
+	uid, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	roomID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	room, _ := h.Live.Get(roomID)
+	if room == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "直播间不存在"})
+		return
+	}
+	guarding, err := h.Live.Guard(uid, room.HostID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "操作失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"guarding": guarding, "count": h.Live.GuardCount(room.HostID)})
+}
+
+// GuardStatus: GET /live/:id/guard — guard count + whether the current user guards.
+func (h *Handler) GuardStatus(c *gin.Context) {
+	roomID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	room, _ := h.Live.Get(roomID)
+	if room == nil {
+		c.JSON(http.StatusOK, gin.H{"count": 0, "guarding": false})
+		return
+	}
+	uid, _ := h.currentUserID(c, true)
+	c.JSON(http.StatusOK, gin.H{"count": h.Live.GuardCount(room.HostID), "guarding": h.Live.IsGuarding(uid, room.HostID), "guards": mustList(h.Live, room.HostID)})
+}
+
+// mustList is a small helper that swallows the guards-list error.
+func mustList(r *repository.LiveRepo, hostID int64) []repository.FanGuard {
+	list, _ := r.ListGuards(hostID, 10)
+	return list
+}

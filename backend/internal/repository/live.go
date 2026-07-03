@@ -139,3 +139,159 @@ func scanLive(rows *sql.Rows, lr *LiveRoom) error {
 	return rows.Scan(&lr.ID, &lr.HostID, &lr.HostName, &lr.HostAvatar, &lr.Title, &lr.CoverURL, &lr.StreamURL,
 		&lr.Viewers, &lr.Likes, &lr.Status, &lr.Category, &lr.CreatedAt)
 }
+
+// ===================== PK battles (直播PK) =====================
+
+// PKBattle is a live-versus-live contest scored by gifts/likes.
+type PKBattle struct {
+	ID     int64  `json:"id"`
+	RoomA  int64  `json:"room_a"`
+	RoomB  int64  `json:"room_b"`
+	ScoreA int    `json:"score_a"`
+	ScoreB int    `json:"score_b"`
+	Status string `json:"status"` // live, ended
+	// Joined room names for display.
+	RoomAName string `json:"room_a_name"`
+	RoomBName string `json:"room_b_name"`
+}
+
+// StartPK creates a battle between two rooms (random pairing if room_b is 0).
+func (r *LiveRepo) StartPK(roomA, roomB int64) (*PKBattle, error) {
+	if roomB == 0 {
+		// Pick a random other live room.
+		_ = r.db.QueryRow(`SELECT id FROM live_rooms WHERE id != ? AND status='live' ORDER BY RANDOM() LIMIT 1`, roomA).Scan(&roomB)
+	}
+	if roomB == 0 {
+		return nil, fmt.Errorf("没有可PK的直播间")
+	}
+	res, err := r.db.Exec(`INSERT INTO pk_battles (room_a, room_b) VALUES (?,?)`, roomA, roomB)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return r.GetPK(id)
+}
+
+// GetPK returns a battle with joined room names.
+func (r *LiveRepo) GetPK(id int64) (*PKBattle, error) {
+	pk := &PKBattle{}
+	var aName, bName sql.NullString
+	err := r.db.QueryRow(
+		`SELECT pb.id, pb.room_a, pb.room_b, pb.score_a, pb.score_b, pb.status, a.host_name, b.host_name
+		 FROM pk_battles pb
+		 JOIN live_rooms a ON a.id = pb.room_a
+		 JOIN live_rooms b ON b.id = pb.room_b
+		 WHERE pb.id=?`, id,
+	).Scan(&pk.ID, &pk.RoomA, &pk.RoomB, &pk.ScoreA, &pk.ScoreB, &pk.Status, &aName, &bName)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	pk.RoomAName = aName.String
+	pk.RoomBName = bName.String
+	return pk, err
+}
+
+// GetActivePK returns the in-progress PK for a room (if any).
+func (r *LiveRepo) GetActivePK(roomID int64) (*PKBattle, error) {
+	pk := &PKBattle{}
+	var aName, bName sql.NullString
+	err := r.db.QueryRow(
+		`SELECT pb.id, pb.room_a, pb.room_b, pb.score_a, pb.score_b, pb.status, a.host_name, b.host_name
+		 FROM pk_battles pb
+		 JOIN live_rooms a ON a.id = pb.room_a
+		 JOIN live_rooms b ON b.id = pb.room_b
+		 WHERE pb.status='live' AND (pb.room_a=? OR pb.room_b=?) ORDER BY pb.id DESC LIMIT 1`, roomID, roomID,
+	).Scan(&pk.ID, &pk.RoomA, &pk.RoomB, &pk.ScoreA, &pk.ScoreB, &pk.Status, &aName, &bName)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	pk.RoomAName = aName.String
+	pk.RoomBName = bName.String
+	return pk, err
+}
+
+// ScorePK adds points to one side of a battle.
+func (r *LiveRepo) ScorePK(id int64, side string, points int) (*PKBattle, error) {
+	if side == "b" {
+		_, _ = r.db.Exec(`UPDATE pk_battles SET score_b = score_b + ? WHERE id=?`, points, id)
+	} else {
+		_, _ = r.db.Exec(`UPDATE pk_battles SET score_a = score_a + ? WHERE id=?`, points, id)
+	}
+	return r.GetPK(id)
+}
+
+// EndPK finalizes a battle.
+func (r *LiveRepo) EndPK(id int64) error {
+	_, err := r.db.Exec(`UPDATE pk_battles SET status='ended' WHERE id=?`, id)
+	return err
+}
+
+// ===================== Fan guards (粉丝勋章/守护) =====================
+
+// FanGuard is a user who "守护" a host.
+type FanGuard struct {
+	ID         int64     `json:"id"`
+	UserID     int64     `json:"user_id"`
+	HostID     int64     `json:"host_id"`
+	BadgeLevel int       `json:"badge_level"`
+	Nickname   string    `json:"nickname"`
+	Avatar     string    `json:"avatar"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// Guard toggles a user's 守护 status for a host. Returns true if now guarding.
+func (r *LiveRepo) Guard(userID, hostID int64) (bool, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`DELETE FROM fan_guards WHERE user_id=? AND host_id=?`, userID, hostID)
+	if err != nil {
+		return false, err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		return false, tx.Commit()
+	}
+	if _, err := tx.Exec(`INSERT INTO fan_guards (user_id, host_id) VALUES (?,?)`, userID, hostID); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
+}
+
+// IsGuarding reports whether a user guards a host.
+func (r *LiveRepo) IsGuarding(userID, hostID int64) bool {
+	var n int
+	_ = r.db.QueryRow(`SELECT 1 FROM fan_guards WHERE user_id=? AND host_id=?`, userID, hostID).Scan(&n)
+	return n == 1
+}
+
+// GuardCount returns how many users guard a host.
+func (r *LiveRepo) GuardCount(hostID int64) int {
+	var n int
+	_ = r.db.QueryRow(`SELECT COUNT(*) FROM fan_guards WHERE host_id=?`, hostID).Scan(&n)
+	return n
+}
+
+// ListGuards returns the top fans guarding a host.
+func (r *LiveRepo) ListGuards(hostID int64, limit int) ([]FanGuard, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := r.db.Query(
+		`SELECT g.id, g.user_id, g.host_id, g.badge_level, u.nickname, u.avatar, g.created_at
+		 FROM fan_guards g JOIN users u ON u.id = g.user_id
+		 WHERE g.host_id=? ORDER BY g.badge_level DESC, g.id LIMIT ?`, hostID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []FanGuard{}
+	for rows.Next() {
+		var g FanGuard
+		if err := rows.Scan(&g.ID, &g.UserID, &g.HostID, &g.BadgeLevel, &g.Nickname, &g.Avatar, &g.CreatedAt); err == nil {
+			out = append(out, g)
+		}
+	}
+	return out, nil
+}

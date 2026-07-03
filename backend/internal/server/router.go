@@ -31,6 +31,8 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 		api.GET("/live/gifts", h.ListGifts)
 		api.GET("/live/:id", h.GetLive)
 		api.GET("/live/:id/messages", h.ListDanmaku)
+		api.GET("/live/:id/pk", h.GetActivePK)
+		api.GET("/live/:id/guard", h.GuardStatus)
 		api.POST("/live/:id/like", h.LikeLive)
 
 		// Public feed & content (identifies user if token present)
@@ -72,6 +74,11 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 			auth.POST("/comments/:id/like", h.LikeComment)
 			// Live danmaku (send a chat message)
 			auth.POST("/live/:id/messages", h.SendDanmaku)
+			// Live PK + fan guard
+			auth.POST("/live/:id/pk", h.StartPK)
+			auth.POST("/live/:id/pk/score", h.ScorePK)
+			auth.POST("/live/:id/pk/end", h.EndPK)
+			auth.POST("/live/:id/guard", h.GuardHost)
 
 			auth.POST("/users/:id/follow", h.ToggleFollow)
 

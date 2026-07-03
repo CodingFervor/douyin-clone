@@ -79,6 +79,16 @@ export const sendLiveMessage = (id, content) => http.post(`/live/${id}/messages`
 // ---- Live gifts ----
 export const getLiveGifts = () => http.get('/live/gifts').then((r) => r.data.data)
 
+// ---- Live PK ----
+export const startPK = (roomId) => http.post(`/live/${roomId}/pk`).then((r) => r.data.data)
+export const getActivePK = (roomId) => http.get(`/live/${roomId}/pk`).then((r) => r.data.data)
+export const scorePK = (pkId, side, points) => http.post(`/live/${pkId}/pk/score`, { side, points }).then((r) => r.data.data)
+export const endPK = (pkId) => http.post(`/live/${pkId}/pk/end`).then((r) => r.data)
+
+// ---- Fan guard (守护) ----
+export const guardHost = (roomId) => http.post(`/live/${roomId}/guard`).then((r) => r.data)
+export const getGuardStatus = (roomId) => http.get(`/live/${roomId}/guard`).then((r) => r.data)
+
 // ---- Hashtags (#话题) ----
 export const getHotHashtags = () => http.get('/videos/hashtags').then((r) => r.data.data)
 export const getVideosByTag = (tag) => http.get(`/videos/tag/${encodeURIComponent(tag)}`).then((r) => r.data.data)

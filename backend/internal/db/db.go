@@ -219,6 +219,27 @@ func createTables() error {
 			UNIQUE(video_id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_duets_parent ON duets(parent_video_id)`,
+		// PK battles: a live-versus-live contest scored by gifts/likes (直播PK).
+		`CREATE TABLE IF NOT EXISTS pk_battles (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			room_a INTEGER NOT NULL,
+			room_b INTEGER NOT NULL,
+			score_a INTEGER NOT NULL DEFAULT 0,
+			score_b INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'live',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_pkbattle_status ON pk_battles(status)`,
+		// Fan guards: users who "守护" a host (粉丝勋章/守护).
+		`CREATE TABLE IF NOT EXISTS fan_guards (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			host_id INTEGER NOT NULL,
+			badge_level INTEGER NOT NULL DEFAULT 1,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id, host_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_fanguards_host ON fan_guards(host_id)`,
 		// FTS5 full-text search over videos (title/description/tags/music).
 		`CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(title, description, tags, music, content='videos', content_rowid='id')`,
 		`CREATE TRIGGER IF NOT EXISTS videos_ai AFTER INSERT ON videos BEGIN
