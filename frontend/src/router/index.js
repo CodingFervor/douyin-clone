@@ -17,6 +17,9 @@ const routes = [
   { path: '/duet/:id', name: 'duet', component: () => import('../views/DuetPage.vue') },
   { path: '/nearby', name: 'nearby', component: () => import('../views/Nearby.vue') },
   { path: '/city/:city', name: 'city', component: () => import('../views/CityPage.vue') },
+  { path: '/dm', name: 'dm', component: () => import('../views/DM.vue'), meta: { auth: true } },
+  { path: '/chat/:userId', name: 'chat', component: () => import('../views/Chat.vue'), meta: { auth: true } },
+  { path: '/creator-stats', name: 'creatorStats', component: () => import('../views/CreatorStats.vue'), meta: { auth: true } },
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })

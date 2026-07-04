@@ -28,6 +28,7 @@ type Handler struct {
 	SearchLog *repository.SearchLogRepo
 	Hashtag   *repository.HashtagRepo
 	Gift      *repository.GiftRepo
+	Messages  *repository.MessageRepo
 	jwtKey    []byte
 }
 

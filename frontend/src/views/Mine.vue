@@ -62,6 +62,8 @@ function fmtCount(n) {
     <div v-if="loggedIn" class="action-row">
       <van-button size="small" round color="#fe2c55" plain @click="router.push('/profile')"><van-icon name="edit" /> 编辑资料</van-button>
       <van-button size="small" round color="#333" @click="router.push('/upload')">发布作品</van-button>
+      <van-button size="small" round color="#333" @click="router.push('/dm')">私信</van-button>
+      <van-button size="small" round color="#333" @click="router.push('/creator-stats')">数据中心</van-button>
     </div>
     <van-tabs v-model:active="tab" color="#fe2c55" background="#161616" title-active-color="#fff" title-inactive-color="#888" v-if="loggedIn">
       <van-tab title="作品" name="works">

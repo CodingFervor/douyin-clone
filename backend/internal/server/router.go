@@ -103,6 +103,14 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 			auth.GET("/notifications", h.ListNotifications)
 			auth.GET("/notifications/counts", h.NotificationCounts)
 			auth.POST("/notifications/read-all", h.MarkNotificationsRead)
+
+			// Private messages (私信)
+			auth.GET("/dm", h.ConversationList)
+			auth.GET("/dm/:userId", h.GetConversation)
+			auth.POST("/dm/:userId", h.SendDM)
+
+			// Creator analytics (视频数据统计)
+			auth.GET("/creator/stats", h.CreatorStats)
 		}
 	}
 	return r

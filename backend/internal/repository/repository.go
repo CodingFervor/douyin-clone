@@ -170,6 +170,9 @@ type VideoRepo struct{ db *sql.DB }
 
 func NewVideoRepo(db *sql.DB) *VideoRepo { return &VideoRepo{db: db} }
 
+// GetDB exposes the underlying handle (used by the creator-stats handler).
+func (r *VideoRepo) GetDB() *sql.DB { return r.db }
+
 // Feed returns a feed of videos ordered newest-first, joined with author info,
 // and annotated with whether the current user liked/favorited each.
 func (r *VideoRepo) Feed(limit int, currentUserID int64) ([]model.Video, error) {

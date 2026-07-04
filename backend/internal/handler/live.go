@@ -18,6 +18,11 @@ func (h *Handler) SetLive(live *repository.LiveRepo, dm *repository.DanmakuRepo,
 	h.Gift = gf
 }
 
+// SetMessages attaches the private-message repo.
+func (h *Handler) SetMessages(m *repository.MessageRepo) {
+	h.Messages = m
+}
+
 // ListLive: GET /live  — list currently-live rooms.
 func (h *Handler) ListLive(c *gin.Context) {
 	rooms, err := h.Live.ListLive(20)

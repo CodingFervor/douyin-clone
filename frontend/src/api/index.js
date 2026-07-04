@@ -102,6 +102,14 @@ export const getLiveByCity = (city) => http.get(`/live/city/${encodeURIComponent
 export const getContributors = (roomId) => http.get(`/live/${roomId}/contributors`).then((r) => r.data.data)
 export const contribute = (roomId, amount) => http.post(`/live/${roomId}/contribute`, { amount }).then((r) => r.data)
 
+// ---- Private messages (私信) ----
+export const getConversations = () => http.get('/dm').then((r) => r.data.data)
+export const getConversation = (userId) => http.get(`/dm/${userId}`).then((r) => r.data.data)
+export const sendDM = (userId, content) => http.post(`/dm/${userId}`, { content }).then((r) => r.data.data)
+
+// ---- Creator analytics (视频数据统计) ----
+export const getCreatorStats = () => http.get('/creator/stats').then((r) => r.data.data)
+
 // ---- Hashtags (#话题) ----
 export const getHotHashtags = () => http.get('/videos/hashtags').then((r) => r.data.data)
 export const getVideosByTag = (tag) => http.get(`/videos/tag/${encodeURIComponent(tag)}`).then((r) => r.data.data)
