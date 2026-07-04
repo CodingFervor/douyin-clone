@@ -98,6 +98,10 @@ export const grabRedPacket = (roomId) => http.post(`/live/${roomId}/redpacket/gr
 export const getLiveCities = () => http.get('/live/cities').then((r) => r.data.data)
 export const getLiveByCity = (city) => http.get(`/live/city/${encodeURIComponent(city)}`).then((r) => r.data.data)
 
+// ---- Contribution board (贡献榜) ----
+export const getContributors = (roomId) => http.get(`/live/${roomId}/contributors`).then((r) => r.data.data)
+export const contribute = (roomId, amount) => http.post(`/live/${roomId}/contribute`, { amount }).then((r) => r.data)
+
 // ---- Hashtags (#话题) ----
 export const getHotHashtags = () => http.get('/videos/hashtags').then((r) => r.data.data)
 export const getVideosByTag = (tag) => http.get(`/videos/tag/${encodeURIComponent(tag)}`).then((r) => r.data.data)

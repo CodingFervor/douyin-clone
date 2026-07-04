@@ -261,6 +261,15 @@ func createTables() error {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(packet_id, user_id)
 		)`,
+		// Contributions: per-user gift/like value sent to a live room (贡献榜).
+		`CREATE TABLE IF NOT EXISTS contributions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			room_id INTEGER NOT NULL,
+			user_id INTEGER NOT NULL,
+			amount INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contrib_room ON contributions(room_id)`,
 		// FTS5 full-text search over videos (title/description/tags/music).
 		`CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(title, description, tags, music, content='videos', content_rowid='id')`,
 		`CREATE TRIGGER IF NOT EXISTS videos_ai AFTER INSERT ON videos BEGIN

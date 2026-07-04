@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onActivated, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { showToast } from 'vant'
+import { showToast, showSuccessToast, showDialog } from 'vant'
 import { getFeed, getRecommendFeed, getFollowingFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment } from '../api'
 
 const router = useRouter()
@@ -188,6 +188,46 @@ function fmtCount(n) {
   if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
   return String(n)
 }
+// Video download/save (视频下载)
+function openShareSheet(v) {
+  showDialog({
+    title: '分享视频',
+    message: '保存视频到本地？',
+    showCancelButton: true,
+    confirmButtonText: '保存视频',
+    cancelButtonText: '复制链接',
+  }).then(() => {
+    saveVideo(v)
+  }).catch(() => {
+    copyLink(v)
+  })
+}
+async function saveVideo(v) {
+  try {
+    const res = await fetch(v.video_url)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = (v.title || 'douyin') + '.mp4'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    showSuccessToast('视频已保存')
+  } catch (e) {
+    showToast('保存失败，已复制链接')
+    copyLink(v)
+  }
+}
+async function copyLink(v) {
+  try {
+    await navigator.clipboard.writeText(v.video_url)
+    showSuccessToast('链接已复制')
+  } catch (e) {
+    showToast('复制失败')
+  }
+}
 </script>
 
 <template>
@@ -241,7 +281,7 @@ function fmtCount(n) {
             <van-icon name="exchange" color="#25f4ee" size="32" />
             <span>合拍</span>
           </div>
-          <div class="action-item" @click="showToast('分享功能为演示')">
+          <div class="action-item" @click="openShareSheet(v)">
             <van-icon name="share-o" color="#fff" size="32" />
             <span>分享</span>
           </div>

@@ -417,3 +417,45 @@ func (r *LiveRepo) GrabPacket(packetID, userID int64) (int, error) {
 	}
 	return amountPer, nil
 }
+
+// ===================== Contributions (贡献榜) =====================
+
+// Contributor is a ranked fan by total gift/like value to a room.
+type Contributor struct {
+	UserID   int64  `json:"user_id"`
+	Nickname string `json:"nickname"`
+	Avatar   string `json:"avatar"`
+	Amount   int    `json:"amount"`
+}
+
+// AddContribution records value sent to a room by a user.
+func (r *LiveRepo) AddContribution(roomID, userID int64, amount int) error {
+	if amount <= 0 {
+		return nil
+	}
+	_, err := r.db.Exec(`INSERT INTO contributions (room_id, user_id, amount) VALUES (?,?,?)`, roomID, userID, amount)
+	return err
+}
+
+// ListContributors returns the top-N fans by total contribution to a room.
+func (r *LiveRepo) ListContributors(roomID int64, limit int) ([]Contributor, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := r.db.Query(
+		`SELECT c.user_id, u.nickname, u.avatar, SUM(c.amount) AS total
+		 FROM contributions c JOIN users u ON u.id = c.user_id
+		 WHERE c.room_id=? GROUP BY c.user_id ORDER BY total DESC LIMIT ?`, roomID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Contributor{}
+	for rows.Next() {
+		var ct Contributor
+		if err := rows.Scan(&ct.UserID, &ct.Nickname, &ct.Avatar, &ct.Amount); err == nil {
+			out = append(out, ct)
+		}
+	}
+	return out, nil
+}

@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showSuccessToast } from 'vant'
-import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts, startPK, getActivePK, scorePK, guardHost, getGuardStatus, dropRedPacket, getActiveRedPacket, grabRedPacket } from '../api'
+import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts, startPK, getActivePK, scorePK, guardHost, getGuardStatus, dropRedPacket, getActiveRedPacket, grabRedPacket, getContributors, contribute } from '../api'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,6 +29,9 @@ const isGuarding = ref(false)
 // Red packets (红包雨)
 const redPacket = ref(null)
 const fallingPackets = ref([])
+// Contribution board (贡献榜)
+const contributors = ref([])
+const showContributors = ref(false)
 
 onMounted(async () => {
   try {
@@ -48,6 +51,7 @@ onMounted(async () => {
   getActivePK(route.params.id).then((d) => { pk.value = d || null }).catch(() => {})
   getGuardStatus(route.params.id).then((d) => { guardCount.value = d.count || 0; isGuarding.value = !!d.guarding }).catch(() => {})
   getActiveRedPacket(route.params.id).then((d) => { if (d) { redPacket.value = d; startRain() } }).catch(() => {})
+  loadContributors()
   pollTimer = setInterval(pollMessages, 3000)
 })
 
@@ -159,11 +163,25 @@ async function grab() {
   try {
     const res = await grabRedPacket(route.params.id)
     showSuccessToast(res.message)
-    // Refresh remaining.
     redPacket.value = await getActiveRedPacket(route.params.id)
     if (!redPacket.value) fallingPackets.value = []
   } catch (e) {
     showToast(e.response?.data?.error || '手慢了')
+  }
+}
+
+// ---- Contribution board (贡献榜) ----
+async function loadContributors() {
+  try { contributors.value = await getContributors(route.params.id) } catch (e) { contributors.value = [] }
+}
+async function doContribute() {
+  try {
+    await contribute(route.params.id, 10)
+    showSuccessToast('已打榜 +10')
+    await loadContributors()
+  } catch (e) {
+    showToast('请先登录')
+    router.push('/login')
   }
 }
 
@@ -221,6 +239,29 @@ function fmt(n) {
 
     <!-- Guard count -->
     <div v-if="guardCount > 0" class="guard-info">🛡️ {{ guardCount }}人守护</div>
+
+    <!-- Contribution board entry (贡献榜) -->
+    <div class="contrib-entry" @click="showContributors = true">
+      🏆 贡献榜
+      <div v-if="contributors.length" class="ce-avatars">
+        <img v-for="(c, i) in contributors.slice(0, 3)" :key="i" class="ce-avatar" :class="'rank-' + i" :src="c.avatar" />
+      </div>
+    </div>
+
+    <!-- Contribution board popup -->
+    <van-popup v-model:show="showContributors" position="bottom" round>
+      <div class="contrib-panel">
+        <div class="cp-head">🏆 贡献榜</div>
+        <div v-if="!contributors.length" class="cp-empty">暂无贡献，快来打榜吧</div>
+        <div v-for="(c, i) in contributors" :key="c.user_id" class="cp-item">
+          <span class="cp-rank" :class="{ top: i < 3 }">{{ i + 1 }}</span>
+          <img class="cp-avatar" :src="c.avatar" />
+          <span class="cp-name">{{ c.nickname }}</span>
+          <span class="cp-amount">{{ c.amount }}</span>
+        </div>
+        <van-button block round color="#fe2c55" style="margin-top: 16px" @click="doContribute">为TA打榜 +10</van-button>
+      </div>
+    </van-popup>
 
     <!-- Red packet drop button + rain -->
     <div v-if="!redPacket" class="rp-drop" @click="doDropPacket">🧧 发红包</div>
@@ -345,6 +386,21 @@ function fmt(n) {
 .pk-bar { width: 100%; height: 6px; background: #fe2c55; border-radius: 3px; overflow: hidden; }
 .pk-fill { height: 100%; background: #25f4ee; transition: width 0.3s; }
 .guard-info { position: absolute; top: 140px; left: 16px; z-index: 10; color: #9c27b0; font-size: 11px; background: rgba(0,0,0,0.5); padding: 2px 8px; border-radius: 10px; }
+.contrib-entry { position: absolute; top: 140px; right: 16px; z-index: 10; background: rgba(0,0,0,0.5); color: #ffd700; font-size: 11px; padding: 4px 10px; border-radius: 12px; display: flex; align-items: center; gap: 4px; }
+.ce-avatars { display: flex; }
+.ce-avatar { width: 18px; height: 18px; border-radius: 50%; border: 1px solid #fff; margin-left: -6px; }
+.ce-avatar.rank-0 { border-color: #ffd700; }
+.ce-avatar.rank-1 { border-color: #c0c0c0; }
+.ce-avatar.rank-2 { border-color: #cd7f32; }
+.contrib-panel { padding: 16px; background: #161616; }
+.cp-head { text-align: center; color: #ffd700; font-size: 16px; font-weight: bold; margin-bottom: 16px; }
+.cp-empty { text-align: center; color: #666; padding: 30px; }
+.cp-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #222; }
+.cp-rank { width: 24px; text-align: center; color: #666; font-weight: bold; font-size: 15px; }
+.cp-rank.top { color: #ffd700; }
+.cp-avatar { width: 36px; height: 36px; border-radius: 50%; }
+.cp-name { flex: 1; color: #fff; font-size: 14px; }
+.cp-amount { color: #fe2c55; font-weight: bold; font-size: 14px; }
 .rp-drop { position: absolute; top: 140px; right: 16px; z-index: 10; background: rgba(255,0,54,0.85); color: #fff; font-size: 12px; padding: 4px 10px; border-radius: 12px; }
 .rp-banner { position: absolute; top: 168px; left: 12px; right: 12px; z-index: 10; background: linear-gradient(90deg, #ff0036, #ff9800); color: #fff; text-align: center; font-size: 12px; padding: 6px; border-radius: 16px; }
 .rp-rain { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 14; pointer-events: none; }

@@ -81,6 +81,10 @@ func (h *Handler) LikeLive(c *gin.Context) {
 		return
 	}
 	h.Live.IncrementLikes(id)
+	// Count the like as a small contribution to the contribution board.
+	if uid, ok := h.currentUserID(c, true); ok && uid > 0 {
+		_ = h.Live.AddContribution(id, uid, 1)
+	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -349,4 +353,46 @@ func (h *Handler) GrabPacket(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"amount": amount, "message": "抢到" + strconv.Itoa(amount) + "金币"})
+}
+
+// ===================== Contribution board (贡献榜) =====================
+
+// ListContributors: GET /live/:id/contributors — top fans by gift/like value.
+func (h *Handler) ListContributors(c *gin.Context) {
+	roomID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	list, err := h.Live.ListContributors(roomID, 20)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list})
+}
+
+// Contribute: POST /live/:id/contribute — record a gift/interaction value (requires auth).
+func (h *Handler) Contribute(c *gin.Context) {
+	uid, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	roomID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	var req struct {
+		Amount int `json:"amount"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	if req.Amount <= 0 {
+		req.Amount = 10
+	}
+	if err := h.Live.AddContribution(roomID, uid, req.Amount); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "记录失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

@@ -36,6 +36,7 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 		api.GET("/live/:id/pk", h.GetActivePK)
 		api.GET("/live/:id/guard", h.GuardStatus)
 		api.GET("/live/:id/redpacket", h.ActivePacket)
+		api.GET("/live/:id/contributors", h.ListContributors)
 		api.POST("/live/:id/like", h.LikeLive)
 
 		// Public feed & content (identifies user if token present)
@@ -85,6 +86,8 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 			// Red packets (红包雨)
 			auth.POST("/live/:id/redpacket", h.DropPacket)
 			auth.POST("/live/:id/redpacket/grab", h.GrabPacket)
+			// Contribution board (贡献榜)
+			auth.POST("/live/:id/contribute", h.Contribute)
 
 			auth.POST("/users/:id/follow", h.ToggleFollow)
 
