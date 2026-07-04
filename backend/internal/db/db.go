@@ -281,6 +281,19 @@ func createTables() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_pm_receiver ON private_messages(receiver_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_pm_pair ON private_messages(sender_id, receiver_id)`,
+		// Live schedules: upcoming live-stream announcements (直播预告).
+		`CREATE TABLE IF NOT EXISTS live_schedules (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			host_id INTEGER NOT NULL,
+			host_name TEXT NOT NULL DEFAULT '',
+			host_avatar TEXT NOT NULL DEFAULT '',
+			title TEXT NOT NULL,
+			cover_url TEXT NOT NULL DEFAULT '',
+			scheduled_time DATETIME NOT NULL,
+			status TEXT NOT NULL DEFAULT 'upcoming',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_schedule_time ON live_schedules(scheduled_time)`,
 		// FTS5 full-text search over videos (title/description/tags/music).
 		`CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(title, description, tags, music, content='videos', content_rowid='id')`,
 		`CREATE TRIGGER IF NOT EXISTS videos_ai AFTER INSERT ON videos BEGIN

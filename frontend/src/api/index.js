@@ -110,6 +110,12 @@ export const sendDM = (userId, content) => http.post(`/dm/${userId}`, { content 
 // ---- Creator analytics (视频数据统计) ----
 export const getCreatorStats = () => http.get('/creator/stats').then((r) => r.data.data)
 
+// ---- Live schedules (直播预告) ----
+export const getLiveSchedules = () => http.get('/live/schedules').then((r) => r.data.data)
+
+// ---- Hot music (热门音乐榜) ----
+export const getHotMusic = () => http.get('/videos/hot-music').then((r) => r.data.data)
+
 // ---- Hashtags (#话题) ----
 export const getHotHashtags = () => http.get('/videos/hashtags').then((r) => r.data.data)
 export const getVideosByTag = (tag) => http.get(`/videos/tag/${encodeURIComponent(tag)}`).then((r) => r.data.data)

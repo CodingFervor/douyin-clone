@@ -459,3 +459,58 @@ func (r *LiveRepo) ListContributors(roomID int64, limit int) ([]Contributor, err
 	}
 	return out, nil
 }
+
+// ===================== Live schedules (直播预告) =====================
+
+// LiveSchedule is an upcoming live-stream announcement.
+type LiveSchedule struct {
+	ID            int64     `json:"id"`
+	HostID        int64     `json:"host_id"`
+	HostName      string    `json:"host_name"`
+	HostAvatar    string    `json:"host_avatar"`
+	Title         string    `json:"title"`
+	CoverURL      string    `json:"cover_url"`
+	ScheduledTime time.Time `json:"scheduled_time"`
+	Status        string    `json:"status"`
+}
+
+// ListSchedules returns upcoming live schedules.
+func (r *LiveRepo) ListSchedules(limit int) ([]LiveSchedule, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := r.db.Query(
+		`SELECT id, host_id, host_name, host_avatar, title, cover_url, scheduled_time, status
+		 FROM live_schedules WHERE scheduled_time > CURRENT_TIMESTAMP ORDER BY scheduled_time ASC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []LiveSchedule{}
+	for rows.Next() {
+		var s LiveSchedule
+		if err := rows.Scan(&s.ID, &s.HostID, &s.HostName, &s.HostAvatar, &s.Title, &s.CoverURL, &s.ScheduledTime, &s.Status); err == nil {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
+// SeedSchedules populates demo live schedules if none exist.
+func (r *LiveRepo) SeedSchedules() {
+	var n int
+	_ = r.db.QueryRow(`SELECT COUNT(*) FROM live_schedules`).Scan(&n)
+	if n > 0 {
+		return
+	}
+	schedules := []LiveSchedule{
+		{HostID: 2, HostName: "旅行的意义", HostAvatar: "https://api.dicebear.com/7.x/fun-emoji/svg?seed=travel", Title: "下周冰岛极光专场直播", CoverURL: "https://picsum.photos/seed/sch1/400/500", ScheduledTime: time.Now().Add(48 * time.Hour)},
+		{HostID: 3, HostName: "吃货日记", HostAvatar: "https://api.dicebear.com/7.x/fun-emoji/svg?seed=food", Title: "周末烘焙教学·法式甜点", CoverURL: "https://picsum.photos/seed/sch2/400/500", ScheduledTime: time.Now().Add(72 * time.Hour)},
+		{HostID: 4, HostName: "舞动青春", HostAvatar: "https://api.dicebear.com/7.x/fun-emoji/svg?seed=dance", Title: "周五晚8点·热门舞蹈挑战", CoverURL: "https://picsum.photos/seed/sch3/400/500", ScheduledTime: time.Now().Add(24 * time.Hour)},
+	}
+	for _, s := range schedules {
+		_, _ = r.db.Exec(
+			`INSERT INTO live_schedules (host_id, host_name, host_avatar, title, cover_url, scheduled_time, status) VALUES (?,?,?,?,?,?,?)`,
+			s.HostID, s.HostName, s.HostAvatar, s.Title, s.CoverURL, s.ScheduledTime, "upcoming")
+	}
+}

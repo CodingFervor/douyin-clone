@@ -401,3 +401,23 @@ func (h *Handler) Contribute(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
+
+// ListLiveSchedules: GET /live/schedules — upcoming live announcements.
+func (h *Handler) ListLiveSchedules(c *gin.Context) {
+	list, err := h.Live.ListSchedules(20)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list})
+}
+
+// HotMusic: GET /videos/hot-music — top background music by usage.
+func (h *Handler) HotMusic(c *gin.Context) {
+	list, err := h.Video.ListHotMusic(20)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list})
+}

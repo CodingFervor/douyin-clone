@@ -87,6 +87,10 @@ function fmtCount(n) {
         </van-tag>
       </div>
     </div>
+    <!-- Hot music entry -->
+    <div class="hot-search" @click="router.push('/hot-music')" style="cursor:pointer">
+      <div class="hs-head">🎵 热门音乐榜 ›</div>
+    </div>
     <div v-if="loading" class="loading"><van-loading color="#fe2c55" /></div>
     <div class="grid" v-else>
       <div v-for="v in videos" :key="v.id" class="grid-item" @click="router.push('/feed')">

@@ -521,6 +521,34 @@ func (r *VideoRepo) ListFollowingFeed(userID int64, limit int) ([]model.Video, e
 	return out, nil
 }
 
+// HotMusicItem is a ranked music entry.
+type HotMusicItem struct {
+	Music string `json:"music"`
+	Uses  int    `json:"uses"`
+}
+
+// ListHotMusic ranks background music by how many videos use it.
+func (r *VideoRepo) ListHotMusic(limit int) ([]HotMusicItem, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := r.db.Query(
+		`SELECT music, COUNT(*) AS uses FROM videos WHERE music != '' AND music != '原声'
+		 GROUP BY music ORDER BY uses DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []HotMusicItem{}
+	for rows.Next() {
+		var h HotMusicItem
+		if rows.Scan(&h.Music, &h.Uses) == nil {
+			out = append(out, h)
+		}
+	}
+	return out, nil
+}
+
 func scanVideo(rows *sql.Rows, v *model.Video) error {
 	return rows.Scan(&v.ID, &v.AuthorID, &v.AuthorName, &v.AuthorAvatar, &v.Title, &v.Description,
 		&v.VideoURL, &v.CoverURL, &v.Duration, &v.Plays, &v.Likes, &v.CommentsCount, &v.Shares, &v.Tags, &v.Music, &v.Filter, &v.ParentID, &v.CreatedAt)

@@ -2,21 +2,29 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { getLiveList, getLiveCities } from '../api'
+import { getLiveList, getLiveCities, getLiveSchedules } from '../api'
 
 const router = useRouter()
 const rooms = ref([])
 const cities = ref([])
+const schedules = ref([])
 const loading = ref(true)
+const activeTab = ref('live')
 
 onMounted(async () => {
   try {
     rooms.value = await getLiveList()
     getLiveCities().then((d) => { cities.value = d || [] }).catch(() => {})
+    getLiveSchedules().then((d) => { schedules.value = d || [] }).catch(() => {})
   }
   catch (e) { showToast('加载失败') }
   finally { loading.value = false }
 })
+
+function fmtTime(t) {
+  if (!t) return ''
+  return String(t).slice(5, 16).replace('T', ' ')
+}
 
 function fmt(n) {
   if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
@@ -30,8 +38,13 @@ function rankColor(i) {
 <template>
   <div class="live-page">
     <van-nav-bar title="抖音直播" />
+    <!-- Tab switcher: 直播中 / 预告 -->
+    <div class="tab-bar">
+      <span :class="{ active: activeTab === 'live' }" @click="activeTab = 'live'">直播中</span>
+      <span :class="{ active: activeTab === 'schedule' }" @click="activeTab = 'schedule'">预告</span>
+    </div>
     <!-- City channel selector -->
-    <div v-if="cities.length" class="city-bar">
+    <div v-if="cities.length && activeTab === 'live'" class="city-bar">
       <span class="city-label">📍 城市</span>
       <span class="city-chip" @click="router.push('/live')">全部</span>
       <span v-for="c in cities" :key="c.city" class="city-chip" @click="router.push('/city/' + c.city)">{{ c.city }} <small>{{ c.count }}</small></span>
@@ -58,11 +71,37 @@ function rankColor(i) {
         </div>
       </div>
     </div>
+    <!-- Schedule list (直播预告) -->
+    <div v-if="activeTab === 'schedule'">
+      <van-empty v-if="!schedules.length" description="暂无直播预告" />
+      <div v-for="s in schedules" :key="s.id" class="schedule-card">
+        <img class="sc-cover" :src="s.cover_url" />
+        <div class="sc-info">
+          <div class="sc-title van-multi-ellipsis--l2">{{ s.title }}</div>
+          <div class="sc-host">
+            <img class="sc-avatar" :src="s.host_avatar" />
+            <span>{{ s.host_name }}</span>
+          </div>
+          <div class="sc-time">🕐 {{ fmtTime(s.scheduled_time) }}</div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .live-page { height: 100vh; overflow-y: auto; background: #000; }
+.tab-bar { display: flex; justify-content: center; gap: 24px; padding: 12px; background: #161616; }
+.tab-bar span { color: #888; font-size: 16px; padding: 4px 16px; }
+.tab-bar span.active { color: #fff; font-weight: bold; border-bottom: 2px solid #fe2c55; }
+.schedule-card { display: flex; gap: 12px; padding: 12px; background: #161616; border-bottom: 1px solid #1a1a1a; }
+.sc-cover { width: 80px; height: 100px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
+.sc-info { flex: 1; }
+.sc-title { color: #fff; font-size: 14px; line-height: 20px; }
+.sc-host { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.sc-avatar { width: 24px; height: 24px; border-radius: 50%; }
+.sc-host span { color: #999; font-size: 12px; }
+.sc-time { color: #fe2c55; font-size: 12px; margin-top: 8px; }
 .loading { text-align: center; padding: 60px; }
 .city-bar { display: flex; align-items: center; gap: 8px; padding: 10px 12px; overflow-x: auto; scrollbar-width: none; }
 .city-bar::-webkit-scrollbar { display: none; }

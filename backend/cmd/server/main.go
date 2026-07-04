@@ -43,6 +43,7 @@ func main() {
 	)
 	// Seed live rooms + products.
 	repository.NewLiveRepo(db.DB).SeedLive()
+	repository.NewLiveRepo(db.DB).SeedSchedules()
 
 	// Seed the gift catalog + rebuild the hashtag usage counts.
 	hashtagRepo := repository.NewHashtagRepo(db.DB)
