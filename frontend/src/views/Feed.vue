@@ -34,6 +34,22 @@ const mentionLoaded = ref(false) // true once we've fetched suggestions once
 // video_url is unchanged — this is a visual/demo control.
 const quality = ref('sd')
 
+// ---- Feature 3: Expandable caption (视频文案展示) ----
+// Per-video expand state for long descriptions, keyed by video id. When a
+// description is collapsed (-webkit-line-clamp: 2) we show an "展开" toggle;
+// once expanded we show the full text with a "收起" toggle.
+const expandedDesc = ref({})
+// Toggle the expand/collapse state for a given video id.
+function toggleDesc(id) {
+  expandedDesc.value[id] = !expandedDesc.value[id]
+}
+// Whether a description is long enough to warrant a toggle (heuristic by
+// length — two visual lines roughly correspond to ~40 chars / 80 for CJK).
+function descIsLong(text) {
+  if (!text) return false
+  return text.length > 40
+}
+
 onMounted(() => loadFeed('recommend'))
 onActivated(() => { if (!videos.value.length) loadFeed(activeTab.value) })
 
@@ -484,9 +500,19 @@ async function copyLink(v) {
         <div class="bottom-info">
           <div class="author">@{{ v.author_name }}</div>
           <div class="title">{{ v.title }}</div>
-          <div v-if="v.description" class="desc">{{ v.description }}</div>
+          <!-- Feature 3: Expandable caption (视频文案展示) — clamp to 2 lines
+               with an inline 展开/收起 toggle when the text is long. -->
+          <div v-if="v.description" class="desc-wrap">
+            <span class="desc" :class="{ expanded: expandedDesc[v.id] }">{{ v.description }}</span>
+            <span
+              v-if="descIsLong(v.description)"
+              class="desc-toggle"
+              @click.stop="toggleDesc(v.id)"
+            >{{ expandedDesc[v.id] ? '收起' : '展开' }}</span>
+          </div>
+          <!-- Tags rendered as rounded chips (话题标签) -->
           <div class="tags">
-            <span v-for="t in (v.tags || '').split(',')" :key="t" class="tag">#{{ t }}</span>
+            <span v-for="t in (v.tags || '').split(',').filter(Boolean)" :key="t" class="tag">#{{ t }}</span>
           </div>
           <div class="music-row" @click.stop="router.push('/music/' + v.id)"><van-icon name="music-o" size="14" /><span class="music-name">{{ v.music }}</span></div>
         </div>
@@ -606,8 +632,38 @@ async function copyLink(v) {
 .author { color: #fff; font-size: 15px; font-weight: bold; margin-bottom: 6px; }
 .title { color: #fff; font-size: 14px; line-height: 20px; margin-bottom: 6px; }
 .desc { color: rgba(255,255,255,0.85); font-size: 13px; line-height: 18px; margin-bottom: 6px; }
+/* Feature 3: Expandable caption — collapsed state clamps to 2 lines. */
+.desc-wrap { margin-bottom: 6px; }
+.desc-wrap .desc { display: inline; margin-bottom: 0; }
+.desc-wrap .desc:not(.expanded) {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.desc-toggle {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  margin-left: 4px;
+  cursor: pointer;
+  background: rgba(0,0,0,0.4);
+  padding: 0 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.desc-toggle:active { opacity: 0.7; }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
-.tag { color: #fff; font-size: 13px; }
+/* Tags as rounded chips (话题标签) with theme background. */
+.tag {
+  color: #fff;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(254,44,85,0.75);
+  line-height: 16px;
+}
 .music-row { display: flex; align-items: center; gap: 6px; color: #fff; font-size: 12px; }
 .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 5; }
 .comment-panel { display: flex; flex-direction: column; height: 100%; background: #161616; }

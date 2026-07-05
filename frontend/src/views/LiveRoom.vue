@@ -33,6 +33,14 @@ const fallingPackets = ref([])
 const contributors = ref([])
 const showContributors = ref(false)
 const showDanmaku = ref(true)
+// ---- Highlight moments (直播高光时刻) ----
+// Demo data: notable moments in this live session, shown in a timeline popup.
+const highlights = ref([
+  { time: '5分钟前', text: '直播间人数突破1万！' },
+  { time: '12分钟前', text: '收到火箭礼物🚀' },
+  { time: '20分钟前', text: 'PK大获全胜！' },
+])
+const showHighlights = ref(false)
 
 onMounted(async () => {
   try {
@@ -256,6 +264,12 @@ function fmt(n) {
     <!-- Danmaku toggle -->
     <div class="dm-toggle" @click="showDanmaku = !showDanmaku">{{ showDanmaku ? '🙈 隐藏弹幕' : '💬 显示弹幕' }}</div>
 
+    <!-- Highlight moments entry (直播高光时刻) — gold badge button -->
+    <div class="highlight-entry" @click="showHighlights = true">
+      <span class="hl-badge">✨</span>
+      <span>高光时刻</span>
+    </div>
+
     <!-- Contribution board entry (贡献榜) -->
     <div class="contrib-entry" @click="showContributors = true">
       🏆 贡献榜
@@ -276,6 +290,26 @@ function fmt(n) {
           <span class="cp-amount">{{ c.amount }}</span>
         </div>
         <van-button block round color="#fe2c55" style="margin-top: 16px" @click="doContribute">为TA打榜 +10</van-button>
+      </div>
+    </van-popup>
+
+    <!-- Highlight moments popup (直播高光时刻) — timeline list -->
+    <van-popup v-model:show="showHighlights" position="bottom" round :style="{ height: '50%' }">
+      <div class="highlight-panel">
+        <div class="hp-head"><span class="hp-icon">✨</span> 高光时刻</div>
+        <div class="hp-sub">本场直播的精彩瞬间</div>
+        <div class="hp-list">
+          <div v-for="(h, i) in highlights" :key="i" class="hp-item">
+            <div class="hp-dot-wrap">
+              <span class="hp-dot" :class="{ first: i === 0 }"></span>
+              <span v-if="i < highlights.length - 1" class="hp-line"></span>
+            </div>
+            <div class="hp-content">
+              <div class="hp-time">{{ h.time }}</div>
+              <div class="hp-text">{{ h.text }}</div>
+            </div>
+          </div>
+        </div>
       </div>
     </van-popup>
 
@@ -419,6 +453,43 @@ function fmt(n) {
 .cp-avatar { width: 36px; height: 36px; border-radius: 50%; }
 .cp-name { flex: 1; color: #fff; font-size: 14px; }
 .cp-amount { color: #fe2c55; font-weight: bold; font-size: 14px; }
+/* ===================== Highlight moments (直播高光时刻) ===================== */
+/* Floating gold badge button near the PK/guard area */
+.highlight-entry {
+  position: absolute;
+  top: 168px;
+  right: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, rgba(255,215,0,0.95), rgba(255,180,0,0.95));
+  color: #4a2c00;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(255,215,0,0.4);
+}
+.highlight-entry:active { transform: scale(0.95); }
+.hl-badge { font-size: 13px; animation: hlSparkle 1.6s ease-in-out infinite; }
+@keyframes hlSparkle { 0%,100% { transform: scale(1); } 50% { transform: scale(1.25); } }
+/* Highlight popup — timeline-style list */
+.highlight-panel { background: #161616; height: 100%; display: flex; flex-direction: column; padding: 16px; }
+.hp-head { text-align: center; color: #ffd700; font-size: 17px; font-weight: bold; }
+.hp-icon { margin-right: 4px; }
+.hp-sub { text-align: center; color: #888; font-size: 12px; margin-top: 4px; margin-bottom: 16px; }
+.hp-list { flex: 1; overflow-y: auto; padding: 0 4px; }
+.hp-item { display: flex; gap: 12px; }
+.hp-dot-wrap { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; padding-top: 2px; }
+.hp-dot { width: 12px; height: 12px; border-radius: 50%; background: #ffd700; border: 2px solid rgba(255,215,0,0.3); box-shadow: 0 0 8px rgba(255,215,0,0.6); }
+.hp-dot.first { animation: hlPulse 1.5s ease-in-out infinite; }
+@keyframes hlPulse { 0%,100% { box-shadow: 0 0 8px rgba(255,215,0,0.6); } 50% { box-shadow: 0 0 16px rgba(255,215,0,1); } }
+.hp-line { flex: 1; width: 2px; background: rgba(255,215,0,0.3); margin: 4px 0; min-height: 28px; }
+.hp-content { flex: 1; padding-bottom: 18px; }
+.hp-time { color: #ffd700; font-size: 12px; font-weight: 500; margin-bottom: 3px; }
+.hp-text { color: #fff; font-size: 14px; line-height: 20px; }
 .rp-drop { position: absolute; top: 140px; right: 16px; z-index: 10; background: rgba(255,0,54,0.85); color: #fff; font-size: 12px; padding: 4px 10px; border-radius: 12px; }
 .rp-banner { position: absolute; top: 168px; left: 12px; right: 12px; z-index: 10; background: linear-gradient(90deg, #ff0036, #ff9800); color: #fff; text-align: center; font-size: 12px; padding: 6px; border-radius: 16px; }
 .rp-rain { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 14; pointer-events: none; }
