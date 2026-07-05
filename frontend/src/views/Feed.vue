@@ -2,7 +2,7 @@
 import { ref, onMounted, onActivated, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showSuccessToast, showDialog } from 'vant'
-import { getFeed, getRecommendFeed, getFollowingFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment, reportVideo, dismissVideo } from '../api'
+import { getFeed, getRecommendFeed, getFollowingFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment, reportVideo, dismissVideo, getSuggestFollows } from '../api'
 
 const router = useRouter()
 const videos = ref([])
@@ -21,6 +21,18 @@ const startY = ref(0)
 const progress = ref(0) // 0-100 for the current video
 const currentTime = ref('00:00')
 const duration = ref('00:00')
+
+// ---- Feature 1: Comment @mention (评论区at提及) ----
+// When the user types "@", show a popup of suggested users from
+// getSuggestFollows. On select, "@nickname " is inserted at the cursor.
+const mentionMode = ref(false) // true while the @ popup is open
+const mentionList = ref([]) // suggested users to display
+const mentionLoaded = ref(false) // true once we've fetched suggestions once
+
+// ---- Feature 2: Video quality switch (清晰度切换) ----
+// 'sd' = 标清 (standard), 'hd' = 高清 (high definition). The actual
+// video_url is unchanged — this is a visual/demo control.
+const quality = ref('sd')
 
 onMounted(() => loadFeed('recommend'))
 onActivated(() => { if (!videos.value.length) loadFeed(activeTab.value) })
@@ -227,6 +239,96 @@ function fmtCount(n) {
   if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
   return String(n)
 }
+
+// ===================== Feature 1: @mention (评论区at提及) =====================
+
+// onCommentInput watches the comment field. When the last typed char is "@",
+// open the suggestion popup and lazily load the suggested-follows list once.
+function onCommentInput() {
+  const text = commentText.value
+  if (!text) {
+    mentionMode.value = false
+    return
+  }
+  const atIdx = text.lastIndexOf('@')
+  if (atIdx >= 0) {
+    // Only treat "@" as a mention trigger when it is at the start of the
+    // input or follows whitespace — avoids matching emails ("a@b.com").
+    const prev = atIdx > 0 ? text[atIdx - 1] : ' '
+    const tail = text.slice(atIdx + 1)
+    if (/\s/.test(prev) && !/\s/.test(tail)) {
+      openMention()
+      return
+    }
+  }
+  mentionMode.value = false
+}
+
+// Load the suggestion list (cached after the first fetch) and open the popup.
+function openMention() {
+  mentionMode.value = true
+  if (mentionLoaded.value) return
+  getSuggestFollows()
+    .then((data) => {
+      mentionList.value = data || []
+      mentionLoaded.value = true
+    })
+    .catch(() => {
+      mentionList.value = []
+    })
+}
+
+// Insert "@nickname " into the comment text at the cursor / end, replacing
+// the half-typed "@..." token, then close the popup.
+function selectMention(u) {
+  const text = commentText.value
+  const atIdx = text.lastIndexOf('@')
+  if (atIdx >= 0) {
+    commentText.value = text.slice(0, atIdx) + '@' + u.nickname + ' '
+  } else {
+    commentText.value = text + '@' + u.nickname + ' '
+  }
+  mentionMode.value = false
+}
+
+// closeMention dismisses the popup (used on blur / Escape / explicit close).
+function closeMention() {
+  mentionMode.value = false
+}
+
+// parseMentions splits a comment into segments, marking @username tokens so
+// the template can render them in the accent cyan color.
+function parseMentions(content) {
+  if (!content) return []
+  // @name consists of word chars / dots / underscores / Chinese chars and
+  // must be preceded by start-of-string or whitespace.
+  const re = /(^|\s)@([\w.\u4e00-\u9fa5]+)/g
+  const out = []
+  let last = 0
+  let m
+  while ((m = re.exec(content)) !== null) {
+    const ws = m[1]
+    const name = m[2]
+    const wsLen = ws ? ws.length : 0
+    const matchStart = m.index + wsLen
+    if (matchStart > last) {
+      out.push({ type: 'text', value: content.slice(last, matchStart) })
+    }
+    if (wsLen) out.push({ type: 'text', value: ws })
+    out.push({ type: 'mention', value: '@' + name })
+    last = matchStart + name.length + 1
+  }
+  if (last < content.length) out.push({ type: 'text', value: content.slice(last) })
+  return out
+}
+
+// ===================== Feature 2: Quality switch (清晰度切换) =====================
+
+// toggleQuality flips between 标清 (sd) and 高清 (hd). The video URL is
+// unchanged — purely a visual control with an HD badge.
+function toggleQuality() {
+  quality.value = quality.value === 'sd' ? 'hd' : 'sd'
+}
 // Video download/save (视频下载)
 function openShareSheet(v) {
   showDialog({
@@ -339,6 +441,12 @@ async function copyLink(v) {
           webkit-playsinline
           @click="togglePlay(i)"
         ></video>
+        <!-- Feature 2: Quality switch (清晰度切换) — top-right corner -->
+        <div v-if="i === index" class="quality-toggle" @click.stop="toggleQuality">
+          {{ quality === 'hd' ? '高清' : '标清' }}
+        </div>
+        <!-- HD badge shown only while 高清 is selected -->
+        <div v-if="i === index && quality === 'hd'" class="hd-badge">HD</div>
         <!-- Right action rail -->
         <div class="action-rail">
           <div class="avatar-wrap" @click="router.push('/user/' + v.author_id)">
@@ -401,7 +509,12 @@ async function copyLink(v) {
             <img class="cp-avatar" :src="c.avatar || 'https://via.placeholder.com/36'" />
             <div class="cp-body">
               <div class="cp-user">{{ c.username }}</div>
-              <div class="cp-content">{{ c.content }}</div>
+              <div class="cp-content">
+                <template v-for="(seg, si) in parseMentions(c.content)" :key="si">
+                  <span v-if="seg.type === 'mention'" class="cp-mention">{{ seg.value }}</span>
+                  <span v-else>{{ seg.value }}</span>
+                </template>
+              </div>
               <div class="cp-reply-btn" :class="{ active: replyTo && replyTo.id === c.id }" @click="startReply(c)">回复</div>
               <!-- Inline sub-input shown when replying to this comment -->
               <div v-if="replyTo && replyTo.id === c.id" class="cp-sub-input">
@@ -421,8 +534,38 @@ async function copyLink(v) {
           <div v-if="!commentList.length" class="cp-empty">暂无评论，来说点什么吧</div>
         </div>
         <div class="cp-input">
-          <van-field v-model="commentText" placeholder="说点什么..." class="cp-field" @keyup.enter="sendComment" />
+          <van-field
+            v-model="commentText"
+            placeholder="说点什么，用 @ 提及好友"
+            class="cp-field"
+            @input="onCommentInput"
+            @keyup.enter="sendComment"
+            @blur="() => setTimeout(closeMention, 150)"
+          />
           <van-button size="small" type="primary" color="#fe2c55" @click="sendComment">发送</van-button>
+        </div>
+        <!-- @mention suggestion popup (评论区at提及) -->
+        <div v-if="mentionMode" class="mention-popup">
+          <div class="mp-head">
+            <span>选择提及的用户</span>
+            <van-icon name="cross" size="14" color="#999" @click="closeMention" />
+          </div>
+          <div class="mp-list">
+            <div
+              v-for="u in mentionList"
+              :key="u.id"
+              class="mp-item"
+              @mousedown.prevent="selectMention(u)"
+            >
+              <img class="mp-avatar" :src="u.avatar || 'https://via.placeholder.com/32'" />
+              <div class="mp-info">
+                <div class="mp-name van-ellipsis">@{{ u.nickname }}</div>
+                <div class="mp-fans">{{ fmtCount(u.followers_count) }} 粉丝</div>
+              </div>
+              <van-icon name="success" size="14" color="#25f4ee" />
+            </div>
+            <div v-if="!mentionList.length" class="mp-empty">暂无可提及的用户</div>
+          </div>
         </div>
       </div>
     </van-popup>
@@ -486,4 +629,25 @@ async function copyLink(v) {
 .cp-empty { text-align: center; color: #666; padding: 40px; }
 .cp-input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #222; }
 .cp-field { background: #222; border-radius: 18px; }
+
+/* ===================== Feature 1: @mention styles ===================== */
+/* Highlighted @username inside rendered comments */
+.cp-mention { color: #25f4ee; font-weight: 500; }
+/* Suggestion popup anchored above the comment input */
+.mention-popup { position: absolute; left: 0; right: 0; bottom: 60px; z-index: 30; background: #1f1f1f; border-top: 1px solid #2a2a2a; border-bottom: 1px solid #2a2a2a; max-height: 200px; display: flex; flex-direction: column; }
+.mp-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; color: #999; font-size: 12px; border-bottom: 1px solid #2a2a2a; }
+.mp-list { overflow-y: auto; }
+.mp-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; }
+.mp-item:active { background: #2a2a2a; }
+.mp-avatar { width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; }
+.mp-info { flex: 1; min-width: 0; }
+.mp-name { color: #fff; font-size: 13px; }
+.mp-fans { color: #888; font-size: 11px; margin-top: 2px; }
+.mp-empty { text-align: center; color: #666; padding: 20px; font-size: 12px; }
+
+/* ===================== Feature 2: Quality switch styles ===================== */
+/* Toggle button in the top-right corner of the active slide */
+.quality-toggle { position: absolute; top: 52px; right: 14px; z-index: 12; padding: 4px 10px; font-size: 12px; color: #fff; background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.35); border-radius: 12px; backdrop-filter: blur(4px); cursor: pointer; user-select: none; }
+/* HD badge — accent cyan, shown when 高清 is selected */
+.hd-badge { position: absolute; top: 52px; right: 64px; z-index: 12; padding: 2px 6px; font-size: 11px; font-weight: bold; color: #0a1f1f; background: #25f4ee; border-radius: 4px; letter-spacing: 0.5px; }
 </style>
