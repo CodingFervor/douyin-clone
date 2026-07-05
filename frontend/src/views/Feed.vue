@@ -12,6 +12,8 @@ const activeTab = ref('recommend')
 const showComment = ref(false)
 const commentList = ref([])
 const commentText = ref('')
+const replyText = ref('')
+const replyTo = ref(null) // comment being replied to (null = top-level)
 const currentVideoId = ref(null)
 const dragging = ref(false)
 const startY = ref(0)
@@ -154,11 +156,22 @@ async function doFollow(v) {
 
 async function openComments(v) {
   currentVideoId.value = v.id
+  replyTo.value = null
+  replyText.value = ''
   showComment.value = true
   try {
     commentList.value = await getComments(v.id)
   } catch (e) {
     commentList.value = []
+  }
+}
+// Start composing a reply to a specific comment (or cancel if already replying).
+function startReply(c) {
+  if (replyTo.value && replyTo.value.id === c.id) {
+    replyTo.value = null
+  } else {
+    replyTo.value = c
+    replyText.value = ''
   }
 }
 async function sendComment() {
@@ -167,6 +180,32 @@ async function sendComment() {
     const cm = await createComment({ video_id: currentVideoId.value, content: commentText.value })
     commentList.value.unshift(cm)
     commentText.value = ''
+    const v = videos.value[index.value]
+    if (v) v.comments_count++
+  } catch (e) {
+    showToast('请先登录')
+  }
+}
+// Submit a reply to the comment currently held in replyTo; passes parent_id so
+// the backend stores it as a nested child comment.
+async function sendReply() {
+  if (!replyText.value.trim() || !replyTo.value) return
+  try {
+    const cm = await createComment({
+      video_id: currentVideoId.value,
+      content: replyText.value,
+      parent_id: replyTo.value.id,
+    })
+    // Place the reply right after its parent in the flat list; the indented
+    // styling (margin-left) reflects the parent_id link.
+    const parentIdx = commentList.value.findIndex((c) => c.id === replyTo.value.id)
+    if (parentIdx >= 0) {
+      commentList.value.splice(parentIdx + 1, 0, cm)
+    } else {
+      commentList.value.push(cm)
+    }
+    replyText.value = ''
+    replyTo.value = null
     const v = videos.value[index.value]
     if (v) v.comments_count++
   } catch (e) {
@@ -191,16 +230,36 @@ function fmtCount(n) {
 // Video download/save (视频下载)
 function openShareSheet(v) {
   showDialog({
-    title: '更多操作',
-    message: '保存视频 / 不感兴趣 / 举报',
+    title: '分享',
+    message: '分享给好友 / 保存视频 / 不感兴趣',
     showCancelButton: true,
-    confirmButtonText: '保存',
+    confirmButtonText: '分享给好友',
     cancelButtonText: '不感兴趣',
   }).then(() => {
-    saveVideo(v)
+    // "分享给好友" — use the Web Share API when available (系统转发), else
+    // fall back to copying the link.
+    shareToFriend(v)
   }).catch(() => {
     doDismiss(v)
   })
+}
+// shareToFriend invokes navigator.share() (系统分享面板). If the browser
+// doesn't support it (desktop/older browsers), copy the link as a fallback.
+async function shareToFriend(v) {
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: v.title || '抖音',
+        text: v.description || v.title || '',
+        url: v.video_url,
+      })
+      showSuccessToast('已分享')
+    } catch (e) {
+      // User cancelled — do nothing.
+    }
+  } else {
+    copyLink(v)
+  }
 }
 async function doDismiss(v) {
   try {
@@ -333,11 +392,27 @@ async function copyLink(v) {
       <div class="comment-panel">
         <div class="cp-head">{{ commentList.length }} 条评论</div>
         <div class="cp-list">
-          <div v-for="c in commentList" :key="c.id" class="cp-item">
+          <div
+            v-for="c in commentList"
+            :key="c.id"
+            class="cp-item"
+            :class="{ 'cp-item-child': c.parent_id && c.parent_id !== 0 }"
+          >
             <img class="cp-avatar" :src="c.avatar || 'https://via.placeholder.com/36'" />
             <div class="cp-body">
               <div class="cp-user">{{ c.username }}</div>
               <div class="cp-content">{{ c.content }}</div>
+              <div class="cp-reply-btn" :class="{ active: replyTo && replyTo.id === c.id }" @click="startReply(c)">回复</div>
+              <!-- Inline sub-input shown when replying to this comment -->
+              <div v-if="replyTo && replyTo.id === c.id" class="cp-sub-input">
+                <van-field
+                  v-model="replyText"
+                  :placeholder="'回复 @' + c.username"
+                  class="cp-field"
+                  @keyup.enter="sendReply"
+                />
+                <van-button size="mini" type="primary" color="#fe2c55" @click="sendReply">发送</van-button>
+              </div>
             </div>
             <div class="cp-like" :class="{ active: c.liked }" @click="doCommentLike(c)">
               <van-icon :name="c.liked ? 'like' : 'like-o'" size="16" :color="c.liked ? '#fe2c55' : '#999'" /><span>{{ c.likes }}</span>
@@ -396,10 +471,16 @@ async function copyLink(v) {
 .cp-head { text-align: center; padding: 14px; color: #fff; font-size: 15px; border-bottom: 1px solid #222; }
 .cp-list { flex: 1; overflow-y: auto; padding: 8px 12px; }
 .cp-item { display: flex; gap: 10px; padding: 12px 0; }
+/* Child comments (parent_id != 0) are indented to reflect the reply nesting. */
+.cp-item-child { margin-left: 40px; }
+.cp-item-child .cp-avatar { width: 28px; height: 28px; }
 .cp-avatar { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; }
 .cp-body { flex: 1; }
 .cp-user { color: #888; font-size: 13px; }
 .cp-content { color: #fff; font-size: 14px; margin-top: 3px; }
+.cp-reply-btn { color: #888; font-size: 12px; margin-top: 6px; display: inline-block; cursor: pointer; }
+.cp-reply-btn.active { color: #fe2c55; }
+.cp-sub-input { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 .cp-like { display: flex; flex-direction: column; align-items: center; color: #888; font-size: 11px; cursor: pointer; }
 .cp-like.active { color: #fe2c55; }
 .cp-empty { text-align: center; color: #666; padding: 40px; }

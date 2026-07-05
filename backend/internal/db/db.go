@@ -371,5 +371,7 @@ func migrate() error {
 	_, _ = DB.Exec(`ALTER TABLE users ADD COLUMN city TEXT NOT NULL DEFAULT ''`)
 	// Add city column to live_rooms (城市频道) — added after launch.
 	_, _ = DB.Exec(`ALTER TABLE live_rooms ADD COLUMN city TEXT NOT NULL DEFAULT ''`)
+	// Add parent_id to comments (评论回复/嵌套回复) — added after launch.
+	_, _ = DB.Exec(`ALTER TABLE comments ADD COLUMN parent_id INTEGER NOT NULL DEFAULT 0`)
 	return nil
 }
