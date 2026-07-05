@@ -361,6 +361,24 @@ func (h *Handler) ReportVideo(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "举报已提交"})
 }
 
+// DismissVideo: POST /videos/:id/dismiss — mark as not interested (不感兴趣).
+func (h *Handler) DismissVideo(c *gin.Context) {
+	uid, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	if err := h.Video.Dismiss(id, uid); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "操作失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "已减少推荐"})
+}
+
 // truncateStr caps s to n runes for short notification previews.
 func truncateStr(s string, n int) string {
 	r := []rune(s)

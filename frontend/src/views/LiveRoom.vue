@@ -32,6 +32,7 @@ const fallingPackets = ref([])
 // Contribution board (贡献榜)
 const contributors = ref([])
 const showContributors = ref(false)
+const showDanmaku = ref(true)
 
 onMounted(async () => {
   try {
@@ -252,6 +253,8 @@ function fmt(n) {
 
     <!-- Guard count -->
     <div v-if="guardCount > 0" class="guard-info">🛡️ {{ guardCount }}人守护</div>
+    <!-- Danmaku toggle -->
+    <div class="dm-toggle" @click="showDanmaku = !showDanmaku">{{ showDanmaku ? '🙈 隐藏弹幕' : '💬 显示弹幕' }}</div>
 
     <!-- Contribution board entry (贡献榜) -->
     <div class="contrib-entry" @click="showContributors = true">
@@ -286,7 +289,7 @@ function fmt(n) {
     </div>
 
     <!-- Danmaku / chat list -->
-    <div class="danmaku-layer" ref="msgListRef">
+    <div v-if="showDanmaku" class="danmaku-layer" ref="msgListRef">
       <div v-for="m in messages" :key="m.id" class="dm-item" @longpress="doBan(m)">
         <span class="dm-user">{{ m.username }}:</span>
         <span class="dm-text">{{ m.content }}</span>
@@ -400,6 +403,7 @@ function fmt(n) {
 .pk-bar { width: 100%; height: 6px; background: #fe2c55; border-radius: 3px; overflow: hidden; }
 .pk-fill { height: 100%; background: #25f4ee; transition: width 0.3s; }
 .guard-info { position: absolute; top: 140px; left: 16px; z-index: 10; color: #9c27b0; font-size: 11px; background: rgba(0,0,0,0.5); padding: 2px 8px; border-radius: 10px; }
+.dm-toggle { position: absolute; top: 168px; left: 16px; z-index: 10; background: rgba(0,0,0,0.5); color: #25f4ee; font-size: 11px; padding: 2px 8px; border-radius: 10px; cursor: pointer; }
 .contrib-entry { position: absolute; top: 140px; right: 16px; z-index: 10; background: rgba(0,0,0,0.5); color: #ffd700; font-size: 11px; padding: 4px 10px; border-radius: 12px; display: flex; align-items: center; gap: 4px; }
 .ce-avatars { display: flex; }
 .ce-avatar { width: 18px; height: 18px; border-radius: 50%; border: 1px solid #fff; margin-left: -6px; }

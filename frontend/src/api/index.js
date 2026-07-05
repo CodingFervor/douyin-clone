@@ -119,6 +119,9 @@ export const getHotMusic = () => http.get('/videos/hot-music').then((r) => r.dat
 // ---- Video report (视频举报) ----
 export const reportVideo = (id, reason) => http.post(`/videos/${id}/report`, { reason }).then((r) => r.data)
 
+// ---- Video dismiss (不感兴趣) ----
+export const dismissVideo = (id) => http.post(`/videos/${id}/dismiss`).then((r) => r.data)
+
 // ---- Live ban (直播间禁言) ----
 export const banUser = (roomId, userId) => http.post(`/live/${roomId}/ban`, { user_id: userId }).then((r) => r.data)
 

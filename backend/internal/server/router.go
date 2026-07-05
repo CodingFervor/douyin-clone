@@ -76,6 +76,7 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 			auth.POST("/videos/:id/play", h.RecordPlay)
 			auth.POST("/videos/:id/duet", h.CreateDuet)
 			auth.POST("/videos/:id/report", h.ReportVideo)
+			auth.POST("/videos/:id/dismiss", h.DismissVideo)
 			auth.GET("/users/me/favorites", h.FavoriteVideos)
 
 			auth.POST("/comments", h.CreateComment)

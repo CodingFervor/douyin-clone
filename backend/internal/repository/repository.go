@@ -555,6 +555,29 @@ func (r *VideoRepo) Report(videoID, userID int64, reason string) error {
 	return err
 }
 
+// Dismiss marks a video as "not interested" for a user (不感兴趣).
+func (r *VideoRepo) Dismiss(videoID, userID int64) error {
+	_, err := r.db.Exec(`INSERT OR IGNORE INTO dismissed_videos (user_id, video_id) VALUES (?,?)`, userID, videoID)
+	return err
+}
+
+// DismissedIDs returns the set of video IDs a user has dismissed.
+func (r *VideoRepo) DismissedIDs(userID int64) (map[int64]bool, error) {
+	rows, err := r.db.Query(`SELECT video_id FROM dismissed_videos WHERE user_id=?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]bool{}
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			out[id] = true
+		}
+	}
+	return out, nil
+}
+
 func scanVideo(rows *sql.Rows, v *model.Video) error {
 	return rows.Scan(&v.ID, &v.AuthorID, &v.AuthorName, &v.AuthorAvatar, &v.Title, &v.Description,
 		&v.VideoURL, &v.CoverURL, &v.Duration, &v.Plays, &v.Likes, &v.CommentsCount, &v.Shares, &v.Tags, &v.Music, &v.Filter, &v.ParentID, &v.CreatedAt)

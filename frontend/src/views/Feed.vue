@@ -2,7 +2,7 @@
 import { ref, onMounted, onActivated, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showSuccessToast, showDialog } from 'vant'
-import { getFeed, getRecommendFeed, getFollowingFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment, reportVideo } from '../api'
+import { getFeed, getRecommendFeed, getFollowingFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment, reportVideo, dismissVideo } from '../api'
 
 const router = useRouter()
 const videos = ref([])
@@ -192,16 +192,28 @@ function fmtCount(n) {
 function openShareSheet(v) {
   showDialog({
     title: '更多操作',
-    message: '选择操作',
+    message: '保存视频 / 不感兴趣 / 举报',
     showCancelButton: true,
-    confirmButtonText: '保存视频',
-    cancelButtonText: '举报',
+    confirmButtonText: '保存',
+    cancelButtonText: '不感兴趣',
   }).then(() => {
     saveVideo(v)
   }).catch(() => {
-    // catch fires for both cancel (举报) and overlay click; check which.
-    doReport(v)
+    doDismiss(v)
   })
+}
+async function doDismiss(v) {
+  try {
+    await dismissVideo(v.id)
+    // Remove from the feed + advance to next.
+    videos.value = videos.value.filter((vid) => vid.id !== v.id)
+    if (index.value >= videos.value.length) index.value = Math.max(0, videos.value.length - 1)
+    nextTick(() => playCurrent())
+    showSuccessToast('已减少推荐')
+  } catch (e) {
+    showToast('请先登录')
+    router.push('/login')
+  }
 }
 async function doReport(v) {
   try {
