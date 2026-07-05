@@ -1,8 +1,8 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { showToast, showSuccessToast } from 'vant'
-import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts, startPK, getActivePK, scorePK, guardHost, getGuardStatus, dropRedPacket, getActiveRedPacket, grabRedPacket, getContributors, contribute } from '../api'
+import { showToast, showSuccessToast, showDialog } from 'vant'
+import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts, startPK, getActivePK, scorePK, guardHost, getGuardStatus, dropRedPacket, getActiveRedPacket, grabRedPacket, getContributors, contribute, banUser } from '../api'
 
 const route = useRoute()
 const router = useRouter()
@@ -83,6 +83,19 @@ async function sendMessage() {
   } catch (e) {
     showToast('请先登录')
     router.push('/login')
+  }
+}
+
+// Ban a user from the room (禁言)
+async function doBan(m) {
+  if (!m.user_id || m.username === '我') return
+  try {
+    showDialog({ title: '禁言', message: `确定禁言 ${m.username}？`, showCancelButton: true }).then(async () => {
+      await banUser(route.params.id, m.user_id)
+      showSuccessToast('已禁言')
+    })
+  } catch (e) {
+    showToast('操作失败')
   }
 }
 
@@ -274,9 +287,10 @@ function fmt(n) {
 
     <!-- Danmaku / chat list -->
     <div class="danmaku-layer" ref="msgListRef">
-      <div v-for="m in messages" :key="m.id" class="dm-item">
+      <div v-for="m in messages" :key="m.id" class="dm-item" @longpress="doBan(m)">
         <span class="dm-user">{{ m.username }}:</span>
         <span class="dm-text">{{ m.content }}</span>
+        <span v-if="m.user_id && m.username !== '我'" class="dm-ban" @click.stop="doBan(m)">🚫</span>
       </div>
     </div>
 
@@ -418,6 +432,7 @@ function fmt(n) {
 .dm-item { background: rgba(0,0,0,0.35); border-radius: 14px; padding: 4px 10px; color: #fff; font-size: 12px; line-height: 18px; align-self: flex-start; max-width: 100%; }
 .dm-user { color: #fe2c55; margin-right: 4px; }
 .dm-text { color: #fff; word-break: break-all; }
+.dm-ban { margin-left: 6px; font-size: 10px; opacity: 0.6; cursor: pointer; }
 .bottom-bar { position: absolute; bottom: 12px; left: 12px; right: 60px; z-index: 10; display: flex; flex-direction: column; gap: 8px; }
 .chat-input { display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.5); border-radius: 20px; padding: 4px 12px; }
 .chat-input input { flex: 1; background: transparent; border: none; outline: none; color: #fff; font-size: 13px; height: 32px; }

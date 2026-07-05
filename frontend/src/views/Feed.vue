@@ -2,7 +2,7 @@
 import { ref, onMounted, onActivated, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showSuccessToast, showDialog } from 'vant'
-import { getFeed, getRecommendFeed, getFollowingFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment } from '../api'
+import { getFeed, getRecommendFeed, getFollowingFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment, reportVideo } from '../api'
 
 const router = useRouter()
 const videos = ref([])
@@ -191,16 +191,25 @@ function fmtCount(n) {
 // Video download/save (视频下载)
 function openShareSheet(v) {
   showDialog({
-    title: '分享视频',
-    message: '保存视频到本地？',
+    title: '更多操作',
+    message: '选择操作',
     showCancelButton: true,
     confirmButtonText: '保存视频',
-    cancelButtonText: '复制链接',
+    cancelButtonText: '举报',
   }).then(() => {
     saveVideo(v)
   }).catch(() => {
-    copyLink(v)
+    // catch fires for both cancel (举报) and overlay click; check which.
+    doReport(v)
   })
+}
+async function doReport(v) {
+  try {
+    await reportVideo(v.id, 'user_report')
+    showSuccessToast('举报已提交')
+  } catch (e) {
+    showToast('举报失败')
+  }
 }
 async function saveVideo(v) {
   try {

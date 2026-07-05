@@ -514,3 +514,24 @@ func (r *LiveRepo) SeedSchedules() {
 			s.HostID, s.HostName, s.HostAvatar, s.Title, s.CoverURL, s.ScheduledTime, "upcoming")
 	}
 }
+
+// ===================== Live bans (直播间禁言) =====================
+
+// BanUser prevents a user from sending messages in a room.
+func (r *LiveRepo) BanUser(roomID, userID int64) error {
+	_, err := r.db.Exec(`INSERT OR IGNORE INTO live_bans (room_id, user_id) VALUES (?,?)`, roomID, userID)
+	return err
+}
+
+// UnbanUser lifts a ban.
+func (r *LiveRepo) UnbanUser(roomID, userID int64) error {
+	_, err := r.db.Exec(`DELETE FROM live_bans WHERE room_id=? AND user_id=?`, roomID, userID)
+	return err
+}
+
+// IsBanned reports whether a user is banned from a room.
+func (r *LiveRepo) IsBanned(roomID, userID int64) bool {
+	var n int
+	_ = r.db.QueryRow(`SELECT 1 FROM live_bans WHERE room_id=? AND user_id=?`, roomID, userID).Scan(&n)
+	return n == 1
+}

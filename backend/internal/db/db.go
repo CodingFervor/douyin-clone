@@ -294,6 +294,26 @@ func createTables() error {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_schedule_time ON live_schedules(scheduled_time)`,
+		// Video reports: user reports of videos (视频举报).
+		`CREATE TABLE IF NOT EXISTS video_reports (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			video_id INTEGER NOT NULL,
+			user_id INTEGER NOT NULL,
+			reason TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'pending',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(video_id, user_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_vreports_video ON video_reports(video_id)`,
+		// Live bans: users banned from a live room by the host (直播间禁言).
+		`CREATE TABLE IF NOT EXISTS live_bans (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			room_id INTEGER NOT NULL,
+			user_id INTEGER NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(room_id, user_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_livebans_room ON live_bans(room_id)`,
 		// FTS5 full-text search over videos (title/description/tags/music).
 		`CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(title, description, tags, music, content='videos', content_rowid='id')`,
 		`CREATE TRIGGER IF NOT EXISTS videos_ai AFTER INSERT ON videos BEGIN

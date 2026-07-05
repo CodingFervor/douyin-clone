@@ -549,6 +549,12 @@ func (r *VideoRepo) ListHotMusic(limit int) ([]HotMusicItem, error) {
 	return out, nil
 }
 
+// Report records a user's report of a video (视频举报). Idempotent via UNIQUE.
+func (r *VideoRepo) Report(videoID, userID int64, reason string) error {
+	_, err := r.db.Exec(`INSERT OR IGNORE INTO video_reports (video_id, user_id, reason) VALUES (?,?,?)`, videoID, userID, reason)
+	return err
+}
+
 func scanVideo(rows *sql.Rows, v *model.Video) error {
 	return rows.Scan(&v.ID, &v.AuthorID, &v.AuthorName, &v.AuthorAvatar, &v.Title, &v.Description,
 		&v.VideoURL, &v.CoverURL, &v.Duration, &v.Plays, &v.Likes, &v.CommentsCount, &v.Shares, &v.Tags, &v.Music, &v.Filter, &v.ParentID, &v.CreatedAt)

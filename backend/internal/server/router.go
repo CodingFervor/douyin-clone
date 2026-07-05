@@ -74,6 +74,7 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 			auth.POST("/videos/:id/favorite", h.ToggleFavorite)
 			auth.POST("/videos/:id/play", h.RecordPlay)
 			auth.POST("/videos/:id/duet", h.CreateDuet)
+			auth.POST("/videos/:id/report", h.ReportVideo)
 			auth.GET("/users/me/favorites", h.FavoriteVideos)
 
 			auth.POST("/comments", h.CreateComment)
@@ -90,6 +91,8 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 			auth.POST("/live/:id/redpacket/grab", h.GrabPacket)
 			// Contribution board (贡献榜)
 			auth.POST("/live/:id/contribute", h.Contribute)
+			// Live ban (直播间禁言)
+			auth.POST("/live/:id/ban", h.BanUser)
 
 			auth.POST("/users/:id/follow", h.ToggleFollow)
 

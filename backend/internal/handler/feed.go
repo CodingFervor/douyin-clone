@@ -339,6 +339,28 @@ func (h *Handler) DeleteVideo(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "已删除"})
 }
 
+// ReportVideo: POST /videos/:id/report — report a video (requires auth).
+func (h *Handler) ReportVideo(c *gin.Context) {
+	uid, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	if err := h.Video.Report(id, uid, req.Reason); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "举报失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "举报已提交"})
+}
+
 // truncateStr caps s to n runes for short notification previews.
 func truncateStr(s string, n int) string {
 	r := []rune(s)

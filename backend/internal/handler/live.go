@@ -104,6 +104,11 @@ func (h *Handler) SendDanmaku(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
 		return
 	}
+	// Check if the user is banned from this room.
+	if h.Live.IsBanned(id, uid) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "您已被禁言"})
+		return
+	}
 	var req struct {
 		Content string `json:"content" binding:"required"`
 	}
@@ -420,4 +425,35 @@ func (h *Handler) HotMusic(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": list})
+}
+
+// ===================== Live bans (直播间禁言) =====================
+
+// BanUser: POST /live/:id/ban — ban a user from the room (requires auth).
+func (h *Handler) BanUser(c *gin.Context) {
+	uid, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	roomID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ID"})
+		return
+	}
+	var req struct {
+		UserID int64 `json:"user_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数不合法"})
+		return
+	}
+	if req.UserID == uid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "不能禁言自己"})
+		return
+	}
+	if err := h.Live.BanUser(roomID, req.UserID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "禁言失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "已禁言"})
 }
