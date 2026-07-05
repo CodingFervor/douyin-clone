@@ -53,6 +53,8 @@ func main() {
 	h.SetLive(repository.NewLiveRepo(db.DB), repository.NewDanmakuRepo(db.DB), repository.NewSearchLogRepo(db.DB), hashtagRepo, giftRepo)
 	// Attach the private-message repo.
 	h.SetMessages(repository.NewMessageRepo(db.DB))
+	// Attach the favorite-folder repo.
+	h.SetFolders(repository.NewFolderRepo(db.DB))
 
 	// Ensure the uploads directory exists for the static file server.
 	_ = os.MkdirAll("data/uploads", 0o755)

@@ -314,6 +314,15 @@ func createTables() error {
 			UNIQUE(room_id, user_id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_livebans_room ON live_bans(room_id)`,
+		// Favorite folders: user-created collections to organize liked videos (收藏夹分组).
+		`CREATE TABLE IF NOT EXISTS favorite_folders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			cover_url TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_folders_user ON favorite_folders(user_id)`,
 		// FTS5 full-text search over videos (title/description/tags/music).
 		`CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(title, description, tags, music, content='videos', content_rowid='id')`,
 		`CREATE TRIGGER IF NOT EXISTS videos_ai AFTER INSERT ON videos BEGIN

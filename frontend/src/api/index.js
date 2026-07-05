@@ -122,6 +122,13 @@ export const reportVideo = (id, reason) => http.post(`/videos/${id}/report`, { r
 // ---- Live ban (直播间禁言) ----
 export const banUser = (roomId, userId) => http.post(`/live/${roomId}/ban`, { user_id: userId }).then((r) => r.data)
 
+// ---- Favorite folders (收藏夹分组) ----
+export const getFolders = () => http.get('/folders').then((r) => r.data.data)
+export const createFolder = (name, coverUrl) => http.post('/folders', { name, cover_url: coverUrl }).then((r) => r.data.data)
+
+// ---- Suggested follows (关注用户推荐) ----
+export const getSuggestFollows = () => http.get('/users/suggest').then((r) => r.data.data)
+
 // ---- Hashtags (#话题) ----
 export const getHotHashtags = () => http.get('/videos/hashtags').then((r) => r.data.data)
 export const getVideosByTag = (tag) => http.get(`/videos/tag/${encodeURIComponent(tag)}`).then((r) => r.data.data)

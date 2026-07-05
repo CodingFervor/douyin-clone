@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { getFeed, searchVideos, getHotSearch, getHotHashtags } from '../api'
+import { getFeed, searchVideos, getHotSearch, getHotHashtags, getSuggestFollows, toggleFollow } from '../api'
 
 const router = useRouter()
 const allVideos = ref([])
@@ -12,6 +12,7 @@ const loading = ref(true)
 const searching = ref(false)
 const hotList = ref([])
 const tags = ref([])
+const suggestUsers = ref([])
 
 onMounted(async () => {
   try {
@@ -26,6 +27,7 @@ onMounted(async () => {
   // Load the hot-search ranking + hot hashtags (best-effort).
   getHotSearch().then((data) => { hotList.value = data || [] }).catch(() => {})
   getHotHashtags().then((data) => { tags.value = data || [] }).catch(() => {})
+  getSuggestFollows().then((data) => { suggestUsers.value = data || [] }).catch(() => {})
 })
 
 async function doSearch() {
@@ -53,6 +55,10 @@ async function doSearch() {
 function searchHot(kw) {
   keyword.value = kw
   doSearch()
+}
+async function doSuggestFollow(u) {
+  try { await toggleFollow(u.id); u.followed = true }
+  catch (e) { showToast('请先登录'); router.push('/login') }
 }
 
 function fmtCount(n) {
@@ -91,6 +97,20 @@ function fmtCount(n) {
     <div class="hot-search" @click="router.push('/hot-music')" style="cursor:pointer">
       <div class="hs-head">🎵 热门音乐榜 ›</div>
     </div>
+    <!-- Suggested follows (关注推荐) -->
+    <div v-if="suggestUsers.length" class="hot-search">
+      <div class="hs-head">👥 推荐关注</div>
+      <div class="suggest-list">
+        <div v-for="u in suggestUsers.slice(0, 4)" :key="u.id" class="su-item" @click="router.push('/user/' + u.id)">
+          <img class="su-avatar" :src="u.avatar" />
+          <div class="su-info">
+            <div class="su-name van-ellipsis">{{ u.nickname }}</div>
+            <div class="su-fans">{{ fmtCount(u.followers_count) }}粉丝</div>
+          </div>
+          <van-button size="mini" round color="#fe2c55" :disabled="u.followed" @click.stop="doSuggestFollow(u)">{{ u.followed ? '已关注' : '关注' }}</van-button>
+        </div>
+      </div>
+    </div>
     <div v-if="loading" class="loading"><van-loading color="#fe2c55" /></div>
     <div class="grid" v-else>
       <div v-for="v in videos" :key="v.id" class="grid-item" @click="router.push('/feed')">
@@ -116,6 +136,12 @@ function fmtCount(n) {
 .hs-count { color: #666; font-size: 11px; }
 .tag-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .tag-chips small { color: #666; font-size: 10px; }
+.suggest-list { margin-top: 8px; }
+.su-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.su-avatar { width: 40px; height: 40px; border-radius: 50%; }
+.su-info { flex: 1; min-width: 0; }
+.su-name { color: #fff; font-size: 14px; }
+.su-fans { color: #666; font-size: 11px; margin-top: 2px; }
 .loading { text-align: center; padding: 60px; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
 .grid-item { background: #111; border-radius: 6px; overflow: hidden; }

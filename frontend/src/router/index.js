@@ -21,6 +21,7 @@ const routes = [
   { path: '/chat/:userId', name: 'chat', component: () => import('../views/Chat.vue'), meta: { auth: true } },
   { path: '/creator-stats', name: 'creatorStats', component: () => import('../views/CreatorStats.vue'), meta: { auth: true } },
   { path: '/hot-music', name: 'hotMusic', component: () => import('../views/HotMusic.vue') },
+  { path: '/folders', name: 'folders', component: () => import('../views/Folders.vue'), meta: { auth: true } },
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })

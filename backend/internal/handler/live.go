@@ -23,6 +23,11 @@ func (h *Handler) SetMessages(m *repository.MessageRepo) {
 	h.Messages = m
 }
 
+// SetFolders attaches the favorite-folder repo.
+func (h *Handler) SetFolders(f *repository.FolderRepo) {
+	h.Folders = f
+}
+
 // ListLive: GET /live  — list currently-live rooms.
 func (h *Handler) ListLive(c *gin.Context) {
 	rooms, err := h.Live.ListLive(20)
@@ -456,4 +461,58 @@ func (h *Handler) BanUser(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "已禁言"})
+}
+
+// ===================== Favorite folders (收藏夹分组) =====================
+
+// ListFolders: GET /folders (requires auth)
+func (h *Handler) ListFolders(c *gin.Context) {
+	uid, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	list, err := h.Folders.ListByUser(uid)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list})
+}
+
+// CreateFolder: POST /folders (requires auth)
+func (h *Handler) CreateFolder(c *gin.Context) {
+	uid, ok := h.currentUserID(c, false)
+	if !ok {
+		return
+	}
+	var req struct {
+		Name     string `json:"name" binding:"required"`
+		CoverURL string `json:"cover_url"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请输入收藏夹名称"})
+		return
+	}
+	f := &repository.FavoriteFolder{UserID: uid, Name: req.Name, CoverURL: req.CoverURL}
+	if err := h.Folders.Create(f); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "创建失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": f})
+}
+
+// ===================== Suggested follows (关注用户推荐) =====================
+
+// SuggestFollows: GET /users/suggest (auth-optional)
+func (h *Handler) SuggestFollows(c *gin.Context) {
+	uid, ok := h.currentUserID(c, true)
+	if !ok {
+		return
+	}
+	list, err := h.User.SuggestFollows(uid, 6)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"data": []any{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list})
 }

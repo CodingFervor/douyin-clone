@@ -29,6 +29,7 @@ type Handler struct {
 	Hashtag   *repository.HashtagRepo
 	Gift      *repository.GiftRepo
 	Messages  *repository.MessageRepo
+	Folders   *repository.FolderRepo
 	jwtKey    []byte
 }
 

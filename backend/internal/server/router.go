@@ -54,6 +54,7 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 		api.GET("/videos/:id/comments", h.ListComments)
 		api.GET("/videos/:id/duets", h.ListDuets)
 		api.GET("/users/nearby", h.ListNearby)
+		api.GET("/users/suggest", h.SuggestFollows)
 		api.GET("/users/:id", h.GetUser)
 		api.GET("/users/:id/videos", h.UserVideos)
 		api.GET("/users/:id/followers", h.Followers)
@@ -116,6 +117,10 @@ func New(h *handler.Handler, allowedOrigins string) *gin.Engine {
 
 			// Creator analytics (视频数据统计)
 			auth.GET("/creator/stats", h.CreatorStats)
+
+			// Favorite folders (收藏夹分组)
+			auth.GET("/folders", h.ListFolders)
+			auth.POST("/folders", h.CreateFolder)
 		}
 	}
 	return r
