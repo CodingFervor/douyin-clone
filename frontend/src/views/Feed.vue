@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onActivated, nextTick, watch } from 'vue'
+import { ref, onMounted, onActivated, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showSuccessToast, showDialog } from 'vant'
 import { getFeed, getRecommendFeed, getFollowingFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment, reportVideo, dismissVideo, getSuggestFollows } from '../api'
@@ -65,11 +65,130 @@ function descIsLong(text) {
   return text.length > 40
 }
 
+// ---- Feature 1: Double-tap Like animation (双击点赞动画) ----
+// A double-tap anywhere on the video (two taps within 300ms) bursts a large
+// heart in the center and auto-likes the video. A single tap still toggles
+// play/pause; to avoid the heart firing on a single tap, the play toggle is
+// deferred 300ms and cancelled if a second tap lands in time.
+const heartBurst = ref([]) // active heart animations [{id, x, y}]
+let lastTapTime = 0
+let singleTapTimer = null
+let heartSeq = 0
+
+// onVideoTap distinguishes single vs. double tap using a 300ms window. On the
+// second tap within the window it cancels the pending play-toggle and triggers
+// the heart burst + like instead.
+function onVideoTap(i, e) {
+  const now = Date.now()
+  if (now - lastTapTime < 300 && lastTapTime > 0) {
+    // Double tap — cancel any pending single-tap play toggle.
+    if (singleTapTimer) {
+      clearTimeout(singleTapTimer)
+      singleTapTimer = null
+    }
+    lastTapTime = 0
+    triggerHeart(i, e)
+    return
+  }
+  lastTapTime = now
+  // Defer the play/pause toggle so a quick second tap can cancel it.
+  if (singleTapTimer) clearTimeout(singleTapTimer)
+  singleTapTimer = setTimeout(() => {
+    singleTapTimer = null
+    togglePlay(i)
+  }, 300)
+}
+
+// triggerHeart spawns a heart at the tap position (or center) and auto-likes.
+function triggerHeart(i, e) {
+  const id = ++heartSeq
+  const rect = e && e.target ? e.target.getBoundingClientRect() : null
+  const x = e && typeof e.clientX === 'number' ? e.clientX : (rect ? rect.left + rect.width / 2 : window.innerWidth / 2)
+  const y = e && typeof e.clientY === 'number' ? e.clientY : (rect ? rect.top + rect.height / 2 : window.innerHeight / 2)
+  heartBurst.value.push({ id, x, y })
+  // Remove once the ~800ms animation finishes.
+  setTimeout(() => {
+    heartBurst.value = heartBurst.value.filter((h) => h.id !== id)
+  }, 800)
+  // Auto-like the current video (only if not already liked).
+  const v = videos.value[i]
+  if (v && !v.liked) doLike(v)
+}
+
+// ---- Feature 2: Follow feed unread badge (关注Tab红点) ----
+// While on the 推荐 tab, periodically poll the following feed in the
+// background and light up a red dot on the 关注 tab when new videos appear.
+// Switching to 关注 marks them seen and clears the dot.
+const followHasNew = ref(false)
+let followCheckTimer = null
+let lastFollowVideoId = null // newest video id seen in the following feed
+
+// checkFollowNew fetches the following feed (best-effort) and compares its
+// newest video id against the last one we showed the user. On the very first
+// check we just record the baseline so we don't badge on initial load.
+async function checkFollowNew() {
+  try {
+    const data = await getFollowingFeed(1)
+    const latestId = data && data.length ? data[0].id : null
+    if (latestId === null) return
+    if (lastFollowVideoId === null) {
+      lastFollowVideoId = latestId
+      return
+    }
+    if (latestId !== lastFollowVideoId) {
+      lastFollowVideoId = latestId
+      followHasNew.value = true
+    }
+  } catch (e) {
+    // Not logged in or transient error — ignore.
+  }
+}
+
+function startFollowCheck() {
+  if (activeTab.value !== 'recommend') return
+  // Initial baseline / check, then poll every 30s.
+  checkFollowNew()
+  stopFollowCheck()
+  followCheckTimer = setInterval(checkFollowNew, 30000)
+}
+
+function stopFollowCheck() {
+  if (followCheckTimer) {
+    clearInterval(followCheckTimer)
+    followCheckTimer = null
+  }
+}
+
 onMounted(() => loadFeed('recommend'))
 onActivated(() => { if (!videos.value.length) loadFeed(activeTab.value) })
 
-// Reload the feed when the user switches between 关注/推荐.
-watch(activeTab, (tab) => loadFeed(tab))
+// Reload the feed when the user switches between 关注/推荐. Also manage the
+// follow-feed unread badge: start polling while on 推荐, clear the badge +
+// update the baseline when the user views the 关注 tab.
+watch(activeTab, (tab) => {
+  loadFeed(tab)
+  if (tab === 'follow') {
+    // Viewing the following feed marks new videos as seen.
+    followHasNew.value = false
+    stopFollowCheck()
+    // Refresh the baseline so we don't immediately re-badge the same videos.
+    getFollowingFeed(1)
+      .then((data) => {
+        lastFollowVideoId = data && data.length ? data[0].id : lastFollowVideoId
+      })
+      .catch(() => {})
+  } else {
+    startFollowCheck()
+  }
+})
+
+// Kick off the background check once the feed first loads on 推荐.
+onMounted(() => startFollowCheck())
+
+onUnmounted(() => {
+  stopFollowCheck()
+  if (singleTapTimer) clearTimeout(singleTapTimer)
+})
 
 async function loadFeed(tab) {
   loading.value = true
@@ -450,7 +569,11 @@ async function copyLink(v) {
   <div class="feed-page" @touchstart="onTouchStart" @touchend="onTouchEnd">
     <!-- Top tabs -->
     <div class="top-tabs">
-      <span :class="{ active: activeTab === 'follow' }" @click="activeTab = 'follow'">关注</span>
+      <span class="tab-follow" :class="{ active: activeTab === 'follow' }" @click="activeTab = 'follow'">
+        关注
+        <!-- Feature 2: red dot badge shown when the following feed has new videos -->
+        <i v-if="followHasNew && activeTab !== 'follow'" class="follow-dot"></i>
+      </span>
       <span class="sep">|</span>
       <span :class="{ active: activeTab === 'recommend' }" @click="activeTab = 'recommend'">推荐</span>
       <van-icon name="search" class="search-btn" size="22" @click="router.push('/discover')" />
@@ -473,8 +596,18 @@ async function copyLink(v) {
           loop
           playsinline
           webkit-playsinline
-          @click="togglePlay(i)"
+          @click="onVideoTap(i, $event)"
         ></video>
+        <!-- Feature 1: Double-tap heart burst overlay — hearts render on top
+             of the active slide and animate (scale + fade) via CSS. -->
+        <template v-if="i === index">
+          <div
+            v-for="h in heartBurst"
+            :key="h.id"
+            class="heart-burst"
+            :style="{ left: h.x + 'px', top: h.y + 'px' }"
+          >❤</div>
+        </template>
         <!-- Feature 2: Quality switch (清晰度切换) — top-right corner -->
         <div v-if="i === index" class="quality-toggle" @click.stop="toggleQuality">
           {{ quality === 'hd' ? '高清' : '标清' }}
@@ -769,4 +902,39 @@ async function copyLink(v) {
   animation: speedBadgeIn 0.2s ease-out;
 }
 @keyframes speedBadgeIn { from { opacity: 0; transform: translate(-50%, -50%) scale(0.8); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+
+/* ===================== Feature 1: Double-tap heart burst ===================== */
+/* The burst heart is anchored at the tap point and runs an 800ms animation:
+   scale 0→1.2 (fade in), then 1.2→1.5 (fade out). Pointer events are disabled
+   so it never blocks the underlying video tap. */
+.heart-burst {
+  position: absolute;
+  z-index: 15;
+  font-size: 100px;
+  color: #fe2c55;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+  animation: heartBurstAnim 0.8s ease-out forwards;
+}
+@keyframes heartBurstAnim {
+  0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  35% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+}
+
+/* ===================== Feature 2: Follow tab unread badge ===================== */
+/* The 关注 tab label is positioned relative so the 8px red dot can sit at its
+   top-right corner. */
+.top-tabs .tab-follow { position: relative; cursor: pointer; }
+.follow-dot {
+  position: absolute;
+  top: -2px;
+  right: -10px;
+  width: 8px;
+  height: 8px;
+  background: #fe2c55;
+  border-radius: 50%;
+  display: inline-block;
+}
 </style>
