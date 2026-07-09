@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onActivated, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onActivated, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showSuccessToast, showDialog } from 'vant'
 import { getFeed, getRecommendFeed, getFollowingFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment, reportVideo, dismissVideo, getSuggestFollows } from '../api'
@@ -79,6 +79,8 @@ let heartSeq = 0
 // second tap within the window it cancels the pending play-toggle and triggers
 // the heart burst + like instead.
 function onVideoTap(i, e) {
+  // The first tap on the video dismisses the one-time guide overlay.
+  if (showGuide.value) dismissGuide()
   const now = Date.now()
   if (now - lastTapTime < 300 && lastTapTime > 0) {
     // Double tap — cancel any pending single-tap play toggle.
@@ -159,6 +161,82 @@ function stopFollowCheck() {
   }
 }
 
+// ===================== Feature: First-time swipe-up guide =====================
+// A one-time overlay shown to new users explaining how to swipe to the next
+// video and double-tap to like. It auto-dismisses after 4s, or on the first
+// swipe/tap, and records 'dy_guide_shown' in localStorage so it never repeats.
+const GUIDE_KEY = 'dy_guide_shown'
+const showGuide = ref(false)
+let guideTimer = null
+
+// Returns true once per browser when the guide has not been shown yet.
+function guideAlreadyShown() {
+  try {
+    return localStorage.getItem(GUIDE_KEY) === '1'
+  } catch (e) {
+    return false
+  }
+}
+
+// showSwipeGuide displays the overlay and arms the 4s auto-dismiss timer.
+function showSwipeGuide() {
+  if (guideAlreadyShown()) return
+  showGuide.value = true
+  if (guideTimer) clearTimeout(guideTimer)
+  guideTimer = setTimeout(dismissGuide, 4000)
+}
+
+// dismissGuide hides the overlay and persists the flag so it won't reappear.
+function dismissGuide() {
+  if (!showGuide.value) return
+  showGuide.value = false
+  if (guideTimer) {
+    clearTimeout(guideTimer)
+    guideTimer = null
+  }
+  try {
+    localStorage.setItem(GUIDE_KEY, '1')
+  } catch (e) {
+    // localStorage may be unavailable (private mode) — ignore.
+  }
+}
+
+// ===================== Feature: Pinned comment (评论置顶) =====================
+// Frontend-only: pin the video author's comment (user_id === author_id), or
+// failing that the most-liked top-level comment, to the top of the list with a
+// 置顶 badge. It is removed from the regular list to avoid duplication.
+// pinnedComment is the chosen comment (or null); regularComments is the
+// remaining list (excluding the pinned one), order preserved.
+const pinnedComment = ref(null)
+const regularComments = ref([])
+
+// recomputePinned splits commentList into a pinned entry + the rest. The author's
+// own top-level comment wins; otherwise the top-level comment with the most
+// likes is pinned. Child comments (parent_id != 0) are never pinned.
+function recomputePinned() {
+  const list = commentList.value || []
+  const current = videos.value[index.value]
+  const authorId = current ? current.author_id : null
+  const topLevel = list.filter((c) => !c.parent_id || c.parent_id === 0)
+
+  let pinned = null
+  if (authorId != null) {
+    pinned = topLevel.find((c) => c.user_id === authorId) || null
+  }
+  if (!pinned && topLevel.length) {
+    // Most-liked top-level comment; ties broken by original order (stable find).
+    let best = null
+    for (const c of topLevel) {
+      if (!best || (c.likes || 0) > (best.likes || 0)) best = c
+    }
+    pinned = best
+  }
+  pinnedComment.value = pinned
+  regularComments.value = pinned
+    ? list.filter((c) => c.id !== pinned.id)
+    : list.slice()
+}
+
 onMounted(() => loadFeed('recommend'))
 onActivated(() => { if (!videos.value.length) loadFeed(activeTab.value) })
 
@@ -184,10 +262,13 @@ watch(activeTab, (tab) => {
 
 // Kick off the background check once the feed first loads on 推荐.
 onMounted(() => startFollowCheck())
+// Show the one-time swipe-up guide for new users once the feed mounts.
+onMounted(() => showSwipeGuide())
 
 onUnmounted(() => {
   stopFollowCheck()
   if (singleTapTimer) clearTimeout(singleTapTimer)
+  if (guideTimer) clearTimeout(guideTimer)
 })
 
 async function loadFeed(tab) {
@@ -274,6 +355,8 @@ function togglePlay(i) {
 
 // Touch-based swipe to switch videos.
 function onTouchStart(e) {
+  // The first swipe dismisses the one-time guide overlay.
+  if (showGuide.value) dismissGuide()
   dragging.value = true
   startY.value = e.touches[0].clientY
 }
@@ -329,6 +412,8 @@ async function openComments(v) {
   } catch (e) {
     commentList.value = []
   }
+  // Recompute the pinned comment for the now-open video's comment list.
+  recomputePinned()
 }
 // Start composing a reply to a specific comment (or cancel if already replying).
 function startReply(c) {
@@ -347,6 +432,7 @@ async function sendComment() {
     commentText.value = ''
     const v = videos.value[index.value]
     if (v) v.comments_count++
+    recomputePinned()
   } catch (e) {
     showToast('请先登录')
   }
@@ -373,6 +459,7 @@ async function sendReply() {
     replyTo.value = null
     const v = videos.value[index.value]
     if (v) v.comments_count++
+    recomputePinned()
   } catch (e) {
     showToast('请先登录')
   }
@@ -382,6 +469,11 @@ async function doCommentLike(c) {
     const res = await likeComment(c.id)
     c.liked = res.liked
     c.likes += res.liked ? 1 : -1
+    // A change in likes could change which comment is "most-liked", so refresh
+    // the pinned selection (only re-pins when no author comment exists).
+    if (!pinnedComment.value || pinnedComment.value.user_id !== videos.value[index.value]?.author_id) {
+      recomputePinned()
+    }
   } catch (e) {
     showToast('请先登录')
     router.push('/login')
@@ -680,13 +772,54 @@ async function copyLink(v) {
 
     <div v-if="loading" class="loading"><van-loading color="#fe2c55" /></div>
 
+    <!-- ===================== Feature: First-time swipe-up guide =====================
+         One-time overlay for new users. Semi-transparent dark backdrop, a large
+         bouncing 👆 emoji, and hint text. Auto-dismisses after 4s or on the first
+         swipe/tap. Only shown when 'dy_guide_shown' is absent in localStorage. -->
+    <div v-if="showGuide" class="guide-overlay" @click.stop="dismissGuide" @touchstart.stop="dismissGuide">
+      <div class="guide-finger">👆</div>
+      <div class="guide-text-main">上滑切换视频</div>
+      <div class="guide-text-sub">双击点赞❤️</div>
+    </div>
+
     <!-- Comment popup -->
     <van-popup v-model:show="showComment" position="bottom" round :style="{ height: '50%' }">
       <div class="comment-panel">
         <div class="cp-head">{{ commentList.length }} 条评论</div>
         <div class="cp-list">
+          <!-- ===================== Feature: Pinned comment (评论置顶) =====================
+               The author's comment or the most-liked comment is pinned at the top
+               with a 置顶 badge + 📌 icon and a subtle highlight background. -->
+          <div v-if="pinnedComment" class="cp-item cp-item-pinned" :key="'pinned-' + pinnedComment.id">
+            <img class="cp-avatar" :src="pinnedComment.avatar || 'https://via.placeholder.com/36'" />
+            <div class="cp-body">
+              <div class="cp-user-row">
+                <span class="cp-user">{{ pinnedComment.username }}</span>
+                <span class="cp-pin-tag">📌 置顶</span>
+              </div>
+              <div class="cp-content">
+                <template v-for="(seg, si) in parseMentions(pinnedComment.content)" :key="si">
+                  <span v-if="seg.type === 'mention'" class="cp-mention">{{ seg.value }}</span>
+                  <span v-else>{{ seg.value }}</span>
+                </template>
+              </div>
+              <div class="cp-reply-btn" :class="{ active: replyTo && replyTo.id === pinnedComment.id }" @click="startReply(pinnedComment)">回复</div>
+              <div v-if="replyTo && replyTo.id === pinnedComment.id" class="cp-sub-input">
+                <van-field
+                  v-model="replyText"
+                  :placeholder="'回复 @' + pinnedComment.username"
+                  class="cp-field"
+                  @keyup.enter="sendReply"
+                />
+                <van-button size="mini" type="primary" color="#fe2c55" @click="sendReply">发送</van-button>
+              </div>
+            </div>
+            <div class="cp-like" :class="{ active: pinnedComment.liked }" @click="doCommentLike(pinnedComment)">
+              <van-icon :name="pinnedComment.liked ? 'like' : 'like-o'" size="16" :color="pinnedComment.liked ? '#fe2c55' : '#999'" /><span>{{ pinnedComment.likes }}</span>
+            </div>
+          </div>
           <div
-            v-for="c in commentList"
+            v-for="c in regularComments"
             :key="c.id"
             class="cp-item"
             :class="{ 'cp-item-child': c.parent_id && c.parent_id !== 0 }"
@@ -936,5 +1069,71 @@ async function copyLink(v) {
   background: #fe2c55;
   border-radius: 50%;
   display: inline-block;
+}
+
+/* ===================== Feature: First-time swipe-up guide ===================== */
+/* Full-screen semi-transparent overlay. The finger emoji bounces upward
+   repeatedly; tapping/swiping (or 4s timeout) dismisses it for good. */
+.guide-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+  text-align: center;
+}
+.guide-finger {
+  font-size: 72px;
+  line-height: 1;
+  animation: guideBounce 1.2s ease-in-out infinite;
+  text-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+.guide-text-main {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+.guide-text-sub {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
+}
+/* The finger translates up then settles back, suggesting a swipe-up gesture. */
+@keyframes guideBounce {
+  0%   { transform: translateY(0) scale(1); opacity: 0.85; }
+  45%  { transform: translateY(-32px) scale(1.05); opacity: 1; }
+  60%  { transform: translateY(-32px) scale(1.05); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 0.85; }
+}
+
+/* ===================== Feature: Pinned comment (评论置顶) ===================== */
+/* Subtle highlight + left accent border to set the pinned comment apart. */
+.cp-item-pinned {
+  background: rgba(254, 44, 85, 0.08);
+  border-left: 3px solid #fe2c55;
+  border-radius: 8px;
+  padding-left: 10px;
+  margin-bottom: 4px;
+}
+.cp-user-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cp-pin-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: #fe2c55;
+  padding: 1px 6px;
+  border-radius: 4px;
+  line-height: 16px;
 }
 </style>
