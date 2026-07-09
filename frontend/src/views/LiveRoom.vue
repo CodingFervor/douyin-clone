@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showSuccessToast, showDialog } from 'vant'
 import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts, startPK, getActivePK, scorePK, guardHost, getGuardStatus, dropRedPacket, getActiveRedPacket, grabRedPacket, getContributors, contribute, banUser, getSuggestFollows } from '../api'
@@ -257,6 +257,39 @@ function fmt(n) {
   if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
   return String(n)
 }
+
+// ===================== Feature: Fan badge tier colors (粉丝勋章等级配色) =====================
+// Contributors are bucketed by total contribution amount into colored tiers.
+// The tier drives a small pill rendered next to each name in the contribution
+// board, and an aggregate breakdown is shown in the guard count display.
+//   >= 1000  -> 红色 铁粉 (iron fan)
+//   >= 500   -> 橙色 忠粉 (loyal fan)
+//   >= 100   -> 黄色 老粉 (old fan)
+//   >= 10    -> 绿色 新粉 (new fan)
+//   else     -> 灰色 路人 (passerby)
+function fanTier(amount) {
+  const a = amount || 0
+  if (a >= 1000) return { label: '铁粉', cls: 'tier-iron', color: '#ff3b30' }
+  if (a >= 500) return { label: '忠粉', cls: 'tier-loyal', color: '#ff9500' }
+  if (a >= 100) return { label: '老粉', cls: 'tier-old', color: '#ffcc00' }
+  if (a >= 10) return { label: '新粉', cls: 'tier-new', color: '#34c759' }
+  return { label: '路人', cls: 'tier-passer', color: '#999' }
+}
+
+// Count how many contributors fall into the 铁粉 (>=1000) and 忠粉 (>=500)
+// tiers, for the guard count breakdown. The guard count itself is the number
+// of guarding users; the tier breakdown is computed from contributors as a
+// proxy for fan loyalty.
+const tierBreakdown = computed(() => {
+  let iron = 0
+  let loyal = 0
+  for (const c of contributors.value) {
+    const a = c.amount || 0
+    if (a >= 1000) iron++
+    else if (a >= 500) loyal++
+  }
+  return { iron, loyal }
+})
 </script>
 
 <template>
@@ -301,8 +334,13 @@ function fmt(n) {
     </div>
     <div v-else class="pk-start" @click="doStartPK">⚔️ 发起PK</div>
 
-    <!-- Guard count -->
-    <div v-if="guardCount > 0" class="guard-info">🛡️ {{ guardCount }}人守护</div>
+    <!-- Guard count — with fan-tier breakdown (粉丝勋章等级配色) -->
+    <div v-if="guardCount > 0" class="guard-info">
+      🛡️ {{ guardCount }}人守护
+      <span v-if="tierBreakdown.iron || tierBreakdown.loyal" class="guard-breakdown">
+        (铁粉{{ tierBreakdown.iron }} 忠粉{{ tierBreakdown.loyal }})
+      </span>
+    </div>
     <!-- Danmaku toggle -->
     <div class="dm-toggle" @click="showDanmaku = !showDanmaku">{{ showDanmaku ? '🙈 隐藏弹幕' : '💬 显示弹幕' }}</div>
 
@@ -354,7 +392,11 @@ function fmt(n) {
         <div v-for="(c, i) in contributors" :key="c.user_id" class="cp-item">
           <span class="cp-rank" :class="{ top: i < 3 }">{{ i + 1 }}</span>
           <img class="cp-avatar" :src="c.avatar" />
-          <span class="cp-name">{{ c.nickname }}</span>
+          <span class="cp-name">
+            {{ c.nickname }}
+            <!-- Feature: 粉丝勋章等级配色 — tier-colored pill next to the name -->
+            <span class="fan-badge" :class="fanTier(c.amount).cls">{{ fanTier(c.amount).label }}</span>
+          </span>
           <span class="cp-amount">{{ c.amount }}</span>
         </div>
         <van-button block round color="#fe2c55" style="margin-top: 16px" @click="doContribute">为TA打榜 +10</van-button>
@@ -638,4 +680,32 @@ function fmt(n) {
 .gp-icon { font-size: 32px; }
 .gp-name { color: #fff; font-size: 12px; }
 .gp-price { color: #ffd700; font-size: 11px; }
+
+/* ===================== Feature: Fan badge tier colors (粉丝勋章等级配色) ===================== */
+/* Guard count breakdown — smaller, lighter text inside the guard info pill. */
+.guard-breakdown { color: rgba(255, 255, 255, 0.75); font-size: 10px; margin-left: 2px; }
+/* Tier-colored pill next to each contributor's name in the contribution board. */
+.fan-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 8px;
+  line-height: 14px;
+  margin-left: 6px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+/* >= 1000: 红色 铁粉 */
+.fan-badge.tier-iron { background: #ff3b30; box-shadow: 0 0 6px rgba(255, 59, 48, 0.5); }
+/* >= 500: 橙色 忠粉 */
+.fan-badge.tier-loyal { background: #ff9500; }
+/* >= 100: 黄色 老粉 — dark text for readability on yellow */
+.fan-badge.tier-old { background: #ffcc00; color: #4a3500; }
+/* >= 10: 绿色 新粉 */
+.fan-badge.tier-new { background: #34c759; }
+/* else: 灰色 路人 */
+.fan-badge.tier-passer { background: #888; }
 </style>

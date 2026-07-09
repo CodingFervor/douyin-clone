@@ -34,6 +34,14 @@ const mentionLoaded = ref(false) // true once we've fetched suggestions once
 // video_url is unchanged — this is a visual/demo control.
 const quality = ref('sd')
 
+// ===================== Feature: Video collection playlist (视频合集播放列表) =====================
+// A bottom-sheet popup that lists every loaded video as a sequential playlist.
+// Each row shows cover + title + duration, the current video is highlighted,
+// and tapping a row jumps to it. "顺序播放" (sequential play) auto-advances to
+// the next video when the current one ends, by extending the onended handler.
+const showPlaylist = ref(false) // popup visibility
+const sequentialPlay = ref(false) // 顺序播放 toggle — auto-advance on end
+
 // ---- Feature 4: Playback speed (视频慢放/倍速) ----
 // Cycles through 0.5x / 1.0x / 1.5x / 2.0x. Applied to the active video
 // element immediately on change and re-applied in playCurrent() so the
@@ -304,6 +312,10 @@ function playCurrent() {
   // Pause all videos, play the current one; report completion for the previous.
   document.querySelectorAll('.feed-video').forEach((v, i) => {
     if (i === index.value) {
+      // Feature: 顺序播放 — disable native looping so the 'ended' event fires
+      // and we can auto-advance. Re-enable looping when sequential play is off
+      // so the active video keeps looping as before.
+      v.loop = !sequentialPlay.value
       v.play().catch(() => {})
       // Feature 4: re-apply the selected playback rate so it persists
       // across slides / after the element is re-rendered.
@@ -314,7 +326,21 @@ function playCurrent() {
         // Report ~0.5 completion when it starts, and the 'ended' listener below
         // upgrades it to 1.0 on full completion.
         reportPlay(vid.id, 0.5)
-        v.onended = () => reportPlay(vid.id, 1.0)
+        // Feature: 顺序播放 (sequential play) — when the toggle is ON, the
+        // video plays through once instead of looping, and on end we auto-
+        // advance to the next loaded video. When OFF the original reportPlay
+        // behavior is preserved. We remove the `loop` attribute while
+        // sequential play is active so 'ended' actually fires.
+        v.onended = () => {
+          reportPlay(vid.id, 1.0)
+          if (sequentialPlay.value) {
+            // Advance to the next video if one is available.
+            if (index.value < videos.value.length - 1) {
+              index.value++
+              playCurrent()
+            }
+          }
+        }
       }
       // Reset + wire the progress bar.
       progress.value = 0
@@ -483,6 +509,31 @@ async function doCommentLike(c) {
 function fmtCount(n) {
   if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
   return String(n)
+}
+
+// ===================== Feature: Video collection playlist (视频合集播放列表) =====================
+
+// fmtDuration converts a duration in seconds (from the backend) into a
+// m:ss / h:mm:ss string for the playlist rows.
+function fmtDuration(s) {
+  if (!s || isNaN(s) || s <= 0) return '00:00'
+  const total = Math.floor(s)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const sec = total % 60
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+  }
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+}
+
+// jumpToPlaylist sets the current index to the chosen video, closes the popup,
+// and starts playback. Reusing index.value keeps swipe/progress state in sync.
+function jumpToPlaylist(i) {
+  if (i < 0 || i >= videos.value.length) return
+  index.value = i
+  showPlaylist.value = false
+  nextTick(() => playCurrent())
 }
 
 // ===================== Feature 1: @mention (评论区at提及) =====================
@@ -764,6 +815,8 @@ async function copyLink(v) {
           <!-- Tags rendered as rounded chips (话题标签) -->
           <div class="tags">
             <span v-for="t in (v.tags || '').split(',').filter(Boolean)" :key="t" class="tag">#{{ t }}</span>
+            <!-- Feature: 合集 button — opens the sequential playlist popup -->
+            <span class="tag playlist-tag" @click.stop="showPlaylist = true">📋 合集 {{ videos.length }}</span>
           </div>
           <div class="music-row" @click.stop="router.push('/music/' + v.id)"><van-icon name="music-o" size="14" /><span class="music-name">{{ v.music }}</span></div>
         </div>
@@ -884,6 +937,52 @@ async function copyLink(v) {
             </div>
             <div v-if="!mentionList.length" class="mp-empty">暂无可提及的用户</div>
           </div>
+        </div>
+      </div>
+    </van-popup>
+
+    <!-- ===================== Feature: Video collection playlist (视频合集播放列表) =====================
+         Bottom-sheet popup listing every loaded video as a sequential playlist.
+         Each row shows cover thumbnail + title + duration; the currently-playing
+         video is highlighted and tapping a row jumps to it. The 顺序播放 toggle
+         auto-advances to the next video when the current one ends. -->
+    <van-popup v-model:show="showPlaylist" position="bottom" round :style="{ height: '55%' }">
+      <div class="playlist-panel">
+        <div class="pl-head">
+          <span class="pl-title">📋 合集播放列表</span>
+          <span class="pl-count">{{ videos.length }} 个视频</span>
+        </div>
+        <div class="pl-seq" @click="sequentialPlay = !sequentialPlay">
+          <span class="pl-seq-switch" :class="{ on: sequentialPlay }">
+            <span class="pl-seq-knob"></span>
+          </span>
+          <span class="pl-seq-label" :class="{ on: sequentialPlay }">顺序播放</span>
+          <span class="pl-seq-hint">{{ sequentialPlay ? '播完自动播放下一个' : '已关闭' }}</span>
+        </div>
+        <div class="pl-list">
+          <div
+            v-for="(pv, pi) in videos"
+            :key="pv.id"
+            class="pl-item"
+            :class="{ current: pi === index }"
+            @click="jumpToPlaylist(pi)"
+          >
+            <div class="pl-cover-wrap">
+              <img class="pl-cover" :src="pv.cover_url || 'https://via.placeholder.com/80x110'" />
+              <span class="pl-duration">{{ fmtDuration(pv.duration) }}</span>
+              <span v-if="pi === index" class="pl-playing">▶ 播放中</span>
+            </div>
+            <div class="pl-info">
+              <div class="pl-name van-ellipsis">{{ pv.title }}</div>
+              <div class="pl-author">@{{ pv.author_name }}</div>
+              <div class="pl-meta">
+                <span>❤ {{ fmtCount(pv.likes) }}</span>
+                <span>💬 {{ fmtCount(pv.comments_count) }}</span>
+              </div>
+            </div>
+            <div v-if="pi === index" class="pl-now-bar"></div>
+          </div>
+          <div v-if="!videos.length" class="pl-empty">暂无视频</div>
         </div>
       </div>
     </van-popup>
@@ -1136,4 +1235,94 @@ async function copyLink(v) {
   border-radius: 4px;
   line-height: 16px;
 }
+
+/* ===================== Feature: Video collection playlist (视频合集播放列表) ===================== */
+/* The 合集 chip in the tag row — slightly accent color to stand out. */
+.playlist-tag {
+  background: rgba(37, 244, 238, 0.75);
+  cursor: pointer;
+}
+.playlist-tag:active { opacity: 0.7; }
+/* Bottom-sheet panel */
+.playlist-panel { display: flex; flex-direction: column; height: 100%; background: #161616; }
+.pl-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; }
+.pl-title { color: #fff; font-size: 16px; font-weight: bold; }
+.pl-count { color: #fe2c55; font-size: 12px; }
+/* 顺序播放 toggle row */
+.pl-seq {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 12px;
+  border-bottom: 1px solid #222;
+  cursor: pointer;
+}
+.pl-seq-switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  background: #444;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.pl-seq-switch.on { background: #fe2c55; }
+.pl-seq-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+}
+.pl-seq-switch.on .pl-seq-knob { transform: translateX(18px); }
+.pl-seq-label { color: #fff; font-size: 14px; font-weight: 500; }
+.pl-seq-label.on { color: #fe2c55; }
+.pl-seq-hint { color: #888; font-size: 11px; margin-left: auto; }
+/* Scrollable list */
+.pl-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+.pl-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  position: relative;
+}
+.pl-item:active { background: #1f1f1f; }
+.pl-item.current { background: rgba(254, 44, 85, 0.12); }
+.pl-cover-wrap { position: relative; flex-shrink: 0; width: 64px; height: 88px; border-radius: 6px; overflow: hidden; background: #222; }
+.pl-cover { width: 100%; height: 100%; object-fit: cover; }
+.pl-duration {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  color: #fff;
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.65);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.pl-playing {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.pl-info { flex: 1; min-width: 0; }
+.pl-name { color: #fff; font-size: 14px; line-height: 18px; font-weight: 500; }
+.pl-author { color: #888; font-size: 12px; margin-top: 4px; }
+.pl-meta { display: flex; gap: 12px; color: #666; font-size: 11px; margin-top: 4px; }
+.pl-now-bar { width: 3px; align-self: stretch; background: #fe2c55; border-radius: 2px; margin-left: 4px; }
+.pl-empty { text-align: center; color: #666; padding: 40px; }
 </style>
