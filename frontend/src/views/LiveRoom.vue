@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showSuccessToast, showDialog } from 'vant'
-import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts, startPK, getActivePK, scorePK, guardHost, getGuardStatus, dropRedPacket, getActiveRedPacket, grabRedPacket, getContributors, contribute, banUser } from '../api'
+import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts, startPK, getActivePK, scorePK, guardHost, getGuardStatus, dropRedPacket, getActiveRedPacket, grabRedPacket, getContributors, contribute, banUser, getSuggestFollows } from '../api'
 
 const route = useRoute()
 const router = useRouter()
@@ -207,6 +207,48 @@ async function doContribute() {
   }
 }
 
+// ===================== Feature: Live viewer list (直播间观众列表) =====================
+// There is no dedicated viewer API, so we compose the list from:
+//   1. recent contributors (already loaded — treated as "recent viewers")
+//   2. suggested-follow users fetched lazily on first open ("also watching")
+// The total viewer count comes from room.viewers; the popup lists a sample.
+const showViewers = ref(false)
+const viewers = ref([])
+const viewersLoaded = ref(false)
+// Derived total: the room's viewer count, falling back to the sample size.
+function viewerCount() {
+  const base = room.value?.viewers || viewers.value.length || 0
+  return base
+}
+function openViewers() {
+  showViewers.value = true
+  // Start with contributors (already loaded) as recent viewers, then enrich
+  // with suggested users the first time the popup is opened.
+  if (!viewersLoaded.value) {
+    viewersLoaded.value = true
+    viewers.value = contributors.value.map((c) => ({
+      id: c.user_id,
+      nickname: c.nickname,
+      avatar: c.avatar,
+      label: '贡献观众',
+    }))
+    // Fetch a few suggested users and merge them in as "also watching".
+    getSuggestFollows()
+      .then((data) => {
+        const sample = (data || []).slice(0, 6).map((u) => ({
+          id: u.id,
+          nickname: u.nickname,
+          avatar: u.avatar,
+          label: '也在看',
+        }))
+        // Deduplicate by id against the existing viewers.
+        const seen = new Set(viewers.value.map((v) => v.id))
+        sample.forEach((s) => { if (!seen.has(s.id)) viewers.value.push(s) })
+      })
+      .catch(() => {})
+  }
+}
+
 function scrollMsgs() {
   if (msgListRef.value) msgListRef.value.scrollTop = msgListRef.value.scrollHeight
 }
@@ -277,6 +319,32 @@ function fmt(n) {
         <img v-for="(c, i) in contributors.slice(0, 3)" :key="i" class="ce-avatar" :class="'rank-' + i" :src="c.avatar" />
       </div>
     </div>
+
+    <!-- Live viewer list entry (直播间观众列表) — shows count + opens popup -->
+    <div class="viewer-entry" @click="openViewers">
+      👥 观众 {{ fmt(viewerCount()) }}
+    </div>
+
+    <!-- Viewer list popup (直播间观众列表) -->
+    <van-popup v-model:show="showViewers" position="bottom" round :style="{ height: '50%' }">
+      <div class="viewer-panel">
+        <div class="vp-head">
+          👥 观众列表
+          <span class="vp-count">{{ fmt(viewerCount()) }} 人在看</span>
+        </div>
+        <div class="vp-sub">本场直播的观众（示例数据）</div>
+        <div class="vp-list">
+          <div v-for="(u, i) in viewers" :key="u.id + '-' + i" class="vp-item">
+            <img class="vp-avatar" :src="u.avatar || 'https://via.placeholder.com/40'" />
+            <div class="vp-info">
+              <div class="vp-name van-ellipsis">{{ u.nickname }}</div>
+              <div class="vp-label" :class="{ recent: u.label === '贡献观众' }">{{ u.label }}</div>
+            </div>
+          </div>
+          <div v-if="!viewers.length" class="vp-empty">暂无观众数据</div>
+        </div>
+      </div>
+    </van-popup>
 
     <!-- Contribution board popup -->
     <van-popup v-model:show="showContributors" position="bottom" round>
@@ -444,6 +512,36 @@ function fmt(n) {
 .ce-avatar.rank-0 { border-color: #ffd700; }
 .ce-avatar.rank-1 { border-color: #c0c0c0; }
 .ce-avatar.rank-2 { border-color: #cd7f32; }
+
+/* ===================== Feature: Live viewer list (直播间观众列表) styles ===================== */
+/* Viewer entry button — placed below the contribution board entry */
+.viewer-entry {
+  position: absolute;
+  top: 196px;
+  right: 16px;
+  z-index: 10;
+  background: rgba(0,0,0,0.5);
+  color: #fff;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  border: 1px solid rgba(254,44,85,0.5);
+}
+.viewer-entry:active { background: rgba(254,44,85,0.7); }
+/* Viewer popup panel */
+.viewer-panel { background: #161616; height: 100%; display: flex; flex-direction: column; padding: 16px; }
+.vp-head { display: flex; align-items: center; justify-content: space-between; color: #fff; font-size: 16px; font-weight: bold; }
+.vp-count { color: #fe2c55; font-size: 13px; font-weight: normal; }
+.vp-sub { color: #888; font-size: 12px; margin: 4px 0 12px; }
+.vp-list { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-content: start; }
+.vp-item { display: flex; align-items: center; gap: 10px; padding: 8px; background: #1f1f1f; border-radius: 10px; }
+.vp-avatar { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; border: 1px solid #333; }
+.vp-info { flex: 1; min-width: 0; }
+.vp-name { color: #fff; font-size: 13px; }
+.vp-label { color: #888; font-size: 11px; margin-top: 2px; }
+.vp-label.recent { color: #ffd700; }
+.vp-empty { grid-column: 1 / -1; text-align: center; color: #666; padding: 40px; }
 .contrib-panel { padding: 16px; background: #161616; }
 .cp-head { text-align: center; color: #ffd700; font-size: 16px; font-weight: bold; margin-bottom: 16px; }
 .cp-empty { text-align: center; color: #666; padding: 30px; }

@@ -34,6 +34,21 @@ const mentionLoaded = ref(false) // true once we've fetched suggestions once
 // video_url is unchanged — this is a visual/demo control.
 const quality = ref('sd')
 
+// ---- Feature 4: Playback speed (视频慢放/倍速) ----
+// Cycles through 0.5x / 1.0x / 1.5x / 2.0x. Applied to the active video
+// element immediately on change and re-applied in playCurrent() so the
+// rate persists across slides.
+const SPEEDS = [0.5, 1.0, 1.5, 2.0]
+const playbackRate = ref(1.0)
+function cycleSpeed() {
+  const cur = SPEEDS.indexOf(playbackRate.value)
+  playbackRate.value = SPEEDS[(cur + 1) % SPEEDS.length]
+  // Apply immediately to the currently-playing video element.
+  const vids = document.querySelectorAll('.feed-video')
+  const v = vids[index.value]
+  if (v) v.playbackRate = playbackRate.value
+}
+
 // ---- Feature 3: Expandable caption (视频文案展示) ----
 // Per-video expand state for long descriptions, keyed by video id. When a
 // description is collapsed (-webkit-line-clamp: 2) we show an "展开" toggle;
@@ -90,6 +105,9 @@ function playCurrent() {
   document.querySelectorAll('.feed-video').forEach((v, i) => {
     if (i === index.value) {
       v.play().catch(() => {})
+      // Feature 4: re-apply the selected playback rate so it persists
+      // across slides / after the element is re-rendered.
+      v.playbackRate = playbackRate.value
       // Report a completion ratio for the now-playing video as implicit feedback.
       const vid = videos.value[i]
       if (vid) {
@@ -463,6 +481,14 @@ async function copyLink(v) {
         </div>
         <!-- HD badge shown only while 高清 is selected -->
         <div v-if="i === index && quality === 'hd'" class="hd-badge">HD</div>
+        <!-- Feature 4: Playback speed toggle (视频慢放/倍速) — cycles 0.5/1.0/1.5/2.0 -->
+        <div v-if="i === index" class="speed-toggle" @click.stop="cycleSpeed">
+          {{ playbackRate }}x
+        </div>
+        <!-- Floating speed badge — only shown when not at normal speed -->
+        <div v-if="i === index && playbackRate !== 1.0" class="speed-badge">
+          {{ playbackRate }}x
+        </div>
         <!-- Right action rail -->
         <div class="action-rail">
           <div class="avatar-wrap" @click="router.push('/user/' + v.author_id)">
@@ -706,4 +732,41 @@ async function copyLink(v) {
 .quality-toggle { position: absolute; top: 52px; right: 14px; z-index: 12; padding: 4px 10px; font-size: 12px; color: #fff; background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.35); border-radius: 12px; backdrop-filter: blur(4px); cursor: pointer; user-select: none; }
 /* HD badge — accent cyan, shown when 高清 is selected */
 .hd-badge { position: absolute; top: 52px; right: 64px; z-index: 12; padding: 2px 6px; font-size: 11px; font-weight: bold; color: #0a1f1f; background: #25f4ee; border-radius: 4px; letter-spacing: 0.5px; }
+
+/* ===================== Feature 4: Playback speed (视频慢放/倍速) styles ===================== */
+/* Speed toggle button, positioned just below the quality toggle */
+.speed-toggle {
+  position: absolute;
+  top: 84px;
+  right: 14px;
+  z-index: 12;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #fff;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid rgba(255,255,255,0.35);
+  border-radius: 12px;
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+  user-select: none;
+}
+.speed-toggle:active { background: rgba(254,44,85,0.7); }
+/* Floating speed badge — theme color, only while a non-normal rate is active */
+.speed-badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 11;
+  padding: 6px 16px;
+  font-size: 20px;
+  font-weight: bold;
+  color: #fff;
+  background: rgba(254,44,85,0.85);
+  border-radius: 20px;
+  pointer-events: none;
+  box-shadow: 0 2px 12px rgba(254,44,85,0.6);
+  animation: speedBadgeIn 0.2s ease-out;
+}
+@keyframes speedBadgeIn { from { opacity: 0; transform: translate(-50%, -50%) scale(0.8); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
 </style>
