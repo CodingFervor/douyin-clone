@@ -24,6 +24,7 @@ const routes = [
   { path: '/hot-music', name: 'hotMusic', component: () => import('../views/HotMusic.vue') },
   { path: '/music-studio', name: 'musicStudio', component: () => import('../views/MusicStudio.vue') },
   { path: '/live-dashboard', name: 'liveDashboard', component: () => import('../views/LiveDashboard.vue') },
+  { path: '/pk-replay', name: 'pkReplay', component: () => import('../views/PKReplay.vue') },
   { path: '/folders', name: 'folders', component: () => import('../views/Folders.vue'), meta: { auth: true } },
   { path: '/series', name: 'series', component: () => import('../views/Series.vue'), meta: { auth: true } },
   { path: '/fan-club', name: 'fanClub', component: () => import('../views/FanClub.vue'), meta: { auth: true } },

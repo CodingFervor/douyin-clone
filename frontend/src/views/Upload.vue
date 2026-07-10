@@ -94,6 +94,66 @@ function captureFrame() {
 function clearCover() {
   form.value.cover_url = ''
 }
+
+// ===================== Feature: AI文案生成器 (caption generator) =====================
+// Pure-frontend template-based caption suggestions derived from the current
+// tags and music. No API call — the pool of templates is shuffled and 3 are
+// picked at random. "换一批" re-rolls the selection.
+const aiTemplates = [
+  '{tag}也太赞了吧！{music}配上绝了🔥 #{tag}',
+  '被这个{tag}治愈了～用{music}刚刚好 #{tag}',
+  '今日份{tag}分享，{music}是灵魂！谁懂啊 #{tag}',
+  '这个{tag}绝绝子，{music}一响直接封神 #{tag}',
+  '{tag}的快乐你们体会到了吗？BGM：{music} #{tag}',
+]
+
+const aiShow = ref(false)
+const aiSuggestions = ref([])
+
+// Resolve the values to interpolate into the templates, applying sensible
+// defaults when tags or music are empty.
+function resolveContext() {
+  const rawTag = (form.value.tags || '').trim()
+  // If multiple tags are comma-separated, take the first as the representative one.
+  const tag = rawTag ? rawTag.split(/[,，\s]+/).filter(Boolean)[0] : '生活'
+  const music = (form.value.music || '').trim() || '原声'
+  return { tag, music }
+}
+
+// Pick n distinct items at random from arr.
+function sampleN(arr, n) {
+  const pool = arr.slice()
+  const out = []
+  while (pool.length && out.length < n) {
+    const idx = Math.floor(Math.random() * pool.length)
+    out.push(pool.splice(idx, 1)[0])
+  }
+  return out
+}
+
+function generateSuggestions() {
+  const { tag, music } = resolveContext()
+  const picked = sampleN(aiTemplates, Math.min(3, aiTemplates.length))
+  aiSuggestions.value = picked.map((t) => t.replace(/\{tag\}/g, tag).replace(/\{music\}/g, music))
+}
+
+function openAi() {
+  generateSuggestions()
+  aiShow.value = true
+}
+
+function closeAi() {
+  aiShow.value = false
+}
+
+function applySuggestion(text) {
+  form.value.title = text
+  closeAi()
+}
+
+function reshuffleAi() {
+  generateSuggestions()
+}
 const filters = [
   { value: 'none', label: '原图' },
   { value: 'vintage', label: '复古' },
@@ -213,7 +273,11 @@ async function submit() {
     </div>
 
     <van-cell-group inset style="margin-top: 12px; background: #161616">
-      <van-field v-model="form.title" label="标题" placeholder="给作品起个标题" label-width="80" />
+      <van-field v-model="form.title" label="标题" placeholder="给作品起个标题" label-width="80">
+        <template #button>
+          <van-button size="small" round color="#fe2c55" @click="openAi">✨ AI文案</van-button>
+        </template>
+      </van-field>
       <van-field v-model="form.description" type="textarea" label="描述" placeholder="作品描述" rows="2" label-width="80" />
       <van-field label="封面图" :loading="uploadingCover">
         <template #input>
@@ -237,6 +301,25 @@ async function submit() {
     <div style="margin: 20px">
       <van-button type="primary" color="#fe2c55" block round :loading="uploading" @click="submit">发布</van-button>
     </div>
+
+    <!-- ===================== Feature: AI文案生成器 popup ===================== -->
+    <van-popup v-model:show="aiShow" round position="bottom" :style="{ background: '#161616' }">
+      <div class="ai-wrap">
+        <div class="ai-header">
+          <span class="ai-title">✨ AI文案建议</span>
+          <span class="ai-close" @click="closeAi">✕</span>
+        </div>
+        <div class="ai-cards">
+          <div v-for="(s, i) in aiSuggestions" :key="i" class="ai-card" @click="applySuggestion(s)">
+            <span class="ai-text">{{ s }}</span>
+            <span class="ai-use">使用</span>
+          </div>
+        </div>
+        <div class="ai-footer">
+          <van-button size="small" plain round color="#fe2c55" icon="replay" @click="reshuffleAi">换一批</van-button>
+        </div>
+      </div>
+    </van-popup>
   </div>
 </template>
 
@@ -275,4 +358,21 @@ async function submit() {
   height: 4px;
 }
 .cp-hint { color: #888; font-size: 12px; margin-top: 10px; text-align: center; }
+
+/* ===================== Feature: AI文案生成器 (caption generator) ===================== */
+.ai-wrap { padding: 20px 16px 24px; }
+.ai-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.ai-title { color: #fff; font-size: 17px; font-weight: bold; }
+.ai-close { color: #888; font-size: 18px; padding: 4px 8px; cursor: pointer; }
+.ai-cards { display: flex; flex-direction: column; gap: 10px; }
+.ai-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: #222; border-radius: 10px; padding: 14px;
+  border: 1px solid #2a2a2a; cursor: pointer; transition: border-color 0.2s, transform 0.1s;
+}
+.ai-card:active { transform: scale(0.99); }
+.ai-card:hover { border-color: #fe2c55; }
+.ai-text { color: #fff; font-size: 14px; line-height: 20px; flex: 1; }
+.ai-use { color: #fe2c55; font-size: 12px; font-weight: bold; white-space: nowrap; }
+.ai-footer { display: flex; justify-content: center; margin-top: 18px; }
 </style>

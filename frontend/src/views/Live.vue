@@ -39,6 +39,7 @@ function rankColor(i) {
   <div class="live-page">
     <van-nav-bar title="抖音直播">
       <template #right>
+        <span class="pk-btn" @click="router.push('/pk-replay')">⚔️ PK回放</span>
         <span class="data-btn" @click="router.push('/live-dashboard')">📊 数据</span>
       </template>
     </van-nav-bar>
