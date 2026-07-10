@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { showToast, showSuccessToast } from 'vant'
 import { uploadVideo, uploadVideoFile, uploadImage } from '../api'
 
@@ -19,11 +19,14 @@ async function onUploadCover(item) {
 }
 
 const router = useRouter()
+const route = useRoute()
 const mode = ref('file')
 const file = ref(null)
 const uploading = ref(false)
 const progress = ref(0)
-const form = ref({ title: '', description: '', video_url: '', cover_url: '', tags: '', music: '原声', filter: 'none' })
+// Pre-fill the music field when arriving from 音乐工作室 via the `music` query param.
+const initialMusic = route.query.music || '原声'
+const form = ref({ title: '', description: '', video_url: '', cover_url: '', tags: '', music: initialMusic, filter: 'none' })
 const filters = [
   { value: 'none', label: '原图' },
   { value: 'vintage', label: '复古' },

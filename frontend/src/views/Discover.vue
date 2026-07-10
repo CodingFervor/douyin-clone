@@ -97,6 +97,10 @@ function fmtCount(n) {
     <div class="hot-search" @click="router.push('/hot-music')" style="cursor:pointer">
       <div class="hs-head">🎵 热门音乐榜 ›</div>
     </div>
+    <!-- Music studio entry (音乐工作室) -->
+    <div class="hot-search" @click="router.push('/music-studio')" style="cursor:pointer">
+      <div class="hs-head">🎵 音乐工作室 ›</div>
+    </div>
     <!-- Suggested follows (关注推荐) -->
     <div v-if="suggestUsers.length" class="hot-search">
       <div class="hs-head">👥 推荐关注</div>

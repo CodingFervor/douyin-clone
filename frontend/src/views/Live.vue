@@ -37,7 +37,11 @@ function rankColor(i) {
 
 <template>
   <div class="live-page">
-    <van-nav-bar title="抖音直播" />
+    <van-nav-bar title="抖音直播">
+      <template #right>
+        <span class="data-btn" @click="router.push('/live-dashboard')">📊 数据</span>
+      </template>
+    </van-nav-bar>
     <!-- Tab switcher: 直播中 / 预告 -->
     <div class="tab-bar">
       <span :class="{ active: activeTab === 'live' }" @click="activeTab = 'live'">直播中</span>
@@ -91,6 +95,8 @@ function rankColor(i) {
 
 <style scoped>
 .live-page { height: 100vh; overflow-y: auto; background: #000; }
+.live-page :deep(.van-nav-bar) { background: #000; }
+.live-page :deep(.van-nav-bar__title) { color: #fff; }
 .tab-bar { display: flex; justify-content: center; gap: 24px; padding: 12px; background: #161616; }
 .tab-bar span { color: #888; font-size: 16px; padding: 4px 16px; }
 .tab-bar span.active { color: #fff; font-weight: bold; border-bottom: 2px solid #fe2c55; }
@@ -128,4 +134,5 @@ function rankColor(i) {
 .lc-avatar { width: 18px; height: 18px; border-radius: 50%; }
 .lc-name { color: #999; font-size: 11px; }
 .lc-city { color: #25f4ee; font-size: 10px; margin-left: auto; }
+.data-btn { color: #fe2c55; font-size: 14px; font-weight: bold; }
 </style>

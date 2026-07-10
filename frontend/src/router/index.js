@@ -21,6 +21,8 @@ const routes = [
   { path: '/chat/:userId', name: 'chat', component: () => import('../views/Chat.vue'), meta: { auth: true } },
   { path: '/creator-stats', name: 'creatorStats', component: () => import('../views/CreatorStats.vue'), meta: { auth: true } },
   { path: '/hot-music', name: 'hotMusic', component: () => import('../views/HotMusic.vue') },
+  { path: '/music-studio', name: 'musicStudio', component: () => import('../views/MusicStudio.vue') },
+  { path: '/live-dashboard', name: 'liveDashboard', component: () => import('../views/LiveDashboard.vue') },
   { path: '/folders', name: 'folders', component: () => import('../views/Folders.vue'), meta: { auth: true } },
 ]
 
