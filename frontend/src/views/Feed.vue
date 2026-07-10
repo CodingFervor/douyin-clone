@@ -433,7 +433,39 @@ const sortedComments = computed(() => {
   return out
 })
 
-onMounted(() => loadFeed('recommend'))
+// ===================== Feature: Auto-pause on scroll away (滑出自动暂停) =====================
+// When the tab/page becomes hidden (user switched tabs, minimized, etc.) the
+// current video is paused automatically via the Page Visibility API. On return
+// we surface a small "已为你暂停，点击继续" overlay; tapping it resumes playback.
+const pausedByVisibility = ref(false)
+function handleVisibilityChange() {
+  const vids = document.querySelectorAll('.feed-video')
+  const v = vids[index.value]
+  if (document.visibilityState === 'hidden') {
+    // Pause the active video and remember that we auto-paused it so we know
+    // to offer the resume overlay when the user comes back.
+    if (v && !v.paused) {
+      v.pause()
+      pausedByVisibility.value = true
+    }
+  } else if (document.visibilityState === 'visible') {
+    // Back to the tab: if we auto-paused, keep it paused and show the
+    // "tap to continue" overlay (resume happens in resumeAfterVisibility()).
+    // If nothing was auto-paused there's nothing to do.
+  }
+}
+// resumeAfterVisibility resumes the active video and hides the overlay.
+function resumeAfterVisibility() {
+  if (!pausedByVisibility.value) return
+  pausedByVisibility.value = false
+  const vids = document.querySelectorAll('.feed-video')
+  const v = vids[index.value]
+  if (v) v.play().catch(() => {})
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
 onActivated(() => { if (!videos.value.length) loadFeed(activeTab.value) })
 
 // Reload the feed when the user switches between 关注/推荐. Also manage the
@@ -465,6 +497,9 @@ onMounted(() => loadSoundPref())
 
 onUnmounted(() => {
   stopFollowCheck()
+  // Feature: 滑出自动暂停 — clean up the visibility listener.
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  pausedByVisibility.value = false
   if (singleTapTimer) clearTimeout(singleTapTimer)
   if (guideTimer) clearTimeout(guideTimer)
   // Feature 1: clear any pending long-press / stats-dismiss timers.
@@ -1084,6 +1119,18 @@ function captureScreenshot() {
         <div v-if="i === index && playbackRate !== 1.0 && !wallpaperMode" class="speed-badge">
           {{ playbackRate }}x
         </div>
+        <!-- ===================== Feature: Auto-pause on scroll away (滑出自动暂停) =====================
+             Shown only on the active slide after the tab was hidden then returned
+             to. The video was auto-paused on hide; tapping this overlay resumes it. -->
+        <div
+          v-if="i === index && pausedByVisibility"
+          class="paused-overlay"
+          @click.stop="resumeAfterVisibility"
+          @touchstart.stop.prevent="resumeAfterVisibility"
+        >
+          <div class="paused-play">▶</div>
+          <div class="paused-text">已为你暂停，点击继续</div>
+        </div>
         <!-- Right action rail -->
         <div v-if="!wallpaperMode" class="action-rail">
           <div class="avatar-wrap" @click="router.push('/user/' + v.author_id)">
@@ -1574,6 +1621,41 @@ function captureScreenshot() {
   animation: speedBadgeIn 0.2s ease-out;
 }
 @keyframes speedBadgeIn { from { opacity: 0; transform: translate(-50%, -50%) scale(0.8); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+
+/* ===================== Feature: Auto-pause on scroll away (滑出自动暂停) =====================
+   Centered overlay shown on the active slide after returning from a hidden tab.
+   The video was paused on hide; tapping the overlay resumes it. */
+.paused-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 14;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(0, 0, 0, 0.35);
+}
+.paused-play {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(254, 44, 85, 0.92);
+  color: #fff;
+  font-size: 30px;
+  line-height: 72px;
+  text-align: center;
+  box-shadow: 0 4px 20px rgba(254, 44, 85, 0.5);
+  animation: pausedPulse 1.6s ease-in-out infinite;
+}
+.paused-text {
+  color: #fff;
+  font-size: 14px;
+  padding: 6px 16px;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 16px;
+}
+@keyframes pausedPulse { 0%, 100% { transform: scale(1); opacity: 0.92; } 50% { transform: scale(1.08); opacity: 1; } }
 
 /* ===================== Feature 1: Double-tap heart burst ===================== */
 /* The burst heart is anchored at the tap point and runs an 800ms animation:

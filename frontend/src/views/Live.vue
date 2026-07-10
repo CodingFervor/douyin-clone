@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { getLiveList, getLiveCities, getLiveSchedules } from '../api'
@@ -10,6 +10,17 @@ const cities = ref([])
 const schedules = ref([])
 const loading = ref(true)
 const activeTab = ref('live')
+
+// ===================== Feature: Category pills (直播分类胶囊) =====================
+// A horizontal scrollable row of category chips above the live grid. "全部"
+// shows every room; the others filter client-side by the room's `category`
+// field. The active pill is highlighted in the theme color.
+const CATEGORIES = ['全部', '旅行', '美食', '舞蹈', '萌宠', '音乐', '游戏']
+const activeCategory = ref('全部')
+const filteredRooms = computed(() => {
+  if (activeCategory.value === '全部') return rooms.value
+  return rooms.value.filter((r) => (r.category || '') === activeCategory.value)
+})
 
 onMounted(async () => {
   try {
@@ -54,12 +65,25 @@ function rankColor(i) {
       <span class="city-chip" @click="router.push('/live')">全部</span>
       <span v-for="c in cities" :key="c.city" class="city-chip" @click="router.push('/city/' + c.city)">{{ c.city }} <small>{{ c.count }}</small></span>
     </div>
+    <!-- ===================== Feature: Category pills (直播分类胶囊) =====================
+         Horizontal scrollable category filter; shown only on the 直播中 tab.
+         "全部" shows all rooms; the rest filter by the room's `category` field. -->
+    <div v-if="activeTab === 'live'" class="cat-bar">
+      <span
+        v-for="cat in CATEGORIES"
+        :key="cat"
+        class="cat-pill"
+        :class="{ active: activeCategory === cat }"
+        @click="activeCategory = cat"
+      >{{ cat }}</span>
+    </div>
     <!-- Leaderboard banner -->
     <div class="lb-banner">🏆 直播人气榜</div>
     <div v-if="loading" class="loading"><van-loading color="#fe2c55" /></div>
     <van-empty v-else-if="!rooms.length" description="暂无直播" />
+    <van-empty v-else-if="!filteredRooms.length" :description="`暂无「${activeCategory}」直播`" />
     <div v-else class="live-grid">
-      <div v-for="(r, i) in rooms" :key="r.id" class="live-card" @click="router.push('/live/' + r.id)">
+      <div v-for="(r, i) in filteredRooms" :key="r.id" class="live-card" @click="router.push('/live/' + r.id)">
         <div class="cover-wrap">
           <img class="cover" :src="r.cover_url" />
           <div class="rank-badge" :class="rankColor(i)" v-if="i < 10">No.{{ i + 1 }}</div>
@@ -115,6 +139,11 @@ function rankColor(i) {
 .city-label { color: #999; font-size: 12px; white-space: nowrap; }
 .city-chip { background: #222; color: #fff; font-size: 12px; padding: 4px 12px; border-radius: 14px; white-space: nowrap; }
 .city-chip small { color: #fe2c55; }
+/* Feature: 直播分类胶囊 — horizontal scrollable category filter pills. */
+.cat-bar { display: flex; align-items: center; gap: 8px; padding: 10px 12px; overflow-x: auto; scrollbar-width: none; background: #161616; }
+.cat-bar::-webkit-scrollbar { display: none; }
+.cat-pill { background: #222; color: #fff; font-size: 13px; padding: 6px 16px; border-radius: 16px; white-space: nowrap; flex-shrink: 0; transition: background 0.15s, color 0.15s; }
+.cat-pill.active { background: #fe2c55; color: #fff; font-weight: bold; }
 .lb-banner { background: linear-gradient(90deg, #fe2c55, #ff9800); color: #fff; text-align: center; padding: 8px; font-size: 14px; font-weight: bold; }
 .live-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
 .live-card { background: #111; border-radius: 8px; overflow: hidden; }

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { getLiveByCity } from '../api'
@@ -20,11 +20,47 @@ function fmt(n) {
   if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
   return String(n)
 }
+
+// Deterministic 32-bit hash (FNV-1a)
+function hashStr(str) {
+  let h = 2166136261 >>> 0
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i)
+    h = Math.imul(h, 16777619) >>> 0
+  }
+  return h >>> 0
+}
+
+const WEATHERS = [
+  { icon: '☀️', key: 'sun', label: '晴', tint: 'rgba(255,196,0,0.14), rgba(255,140,40,0.10)' },
+  { icon: '☁️', key: 'cloud', label: '多云', tint: 'rgba(148,163,184,0.16), rgba(100,116,139,0.10)' },
+  { icon: '🌧️', key: 'rain', label: '雨', tint: 'rgba(56,189,248,0.16), rgba(37,99,235,0.10)' },
+  { icon: '❄️', key: 'snow', label: '雪', tint: 'rgba(186,230,253,0.18), rgba(125,211,252,0.10)' },
+]
+
+const weather = computed(() => {
+  const h = hashStr(city.value)
+  const temp = 15 + (h % 21) // 15..35
+  const w = WEATHERS[h % WEATHERS.length]
+  return { ...w, temp }
+})
+
+const weatherLabel = computed(() => weather.value.label)
+
+const headerStyle = computed(() => ({
+  backgroundImage: `linear-gradient(180deg, ${weather.value.tint})`,
+}))
 </script>
 
 <template>
   <div class="city-page">
     <van-nav-bar :title="city + '直播'" left-arrow @click-left="router.back()" fixed placeholder />
+    <div class="city-header" :style="headerStyle">
+      <div class="weather-badge">
+        <span class="weather-icon">{{ weather.icon }}</span>
+        <span class="weather-text">{{ city }} · {{ weatherLabel }} {{ weather.temp }}°</span>
+      </div>
+    </div>
     <div v-if="loading" class="loading"><van-loading color="#fe2c55" /></div>
     <van-empty v-else-if="!rooms.length" :description="city + '暂无直播'" />
     <div v-else class="live-grid">

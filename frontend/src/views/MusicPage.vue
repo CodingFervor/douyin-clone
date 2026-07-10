@@ -36,6 +36,16 @@ function fmtCount(n) {
       <div class="mb-name">{{ music || '原声' }}</div>
       <div class="mb-count">{{ videos.length }} 个同款作品</div>
     </div>
+    <div class="visualizer" aria-hidden="true">
+      <span class="vbar vbar1"></span>
+      <span class="vbar vbar2"></span>
+      <span class="vbar vbar3"></span>
+      <span class="vbar vbar4"></span>
+      <span class="vbar vbar5"></span>
+      <span class="vbar vbar6"></span>
+      <span class="vbar vbar7"></span>
+      <span class="vbar vbar8"></span>
+    </div>
     <div v-if="loading" class="loading"><van-loading color="#fe2c55" /></div>
     <van-empty v-else-if="!videos.length" description="还没有同款作品" />
     <div v-else class="grid">
@@ -56,6 +66,38 @@ function fmtCount(n) {
 .mb-icon { font-size: 40px; }
 .mb-name { font-size: 20px; font-weight: bold; margin-top: 8px; }
 .mb-count { font-size: 13px; opacity: 0.9; margin-top: 4px; }
+.visualizer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  height: 56px;
+  padding: 8px 12px;
+  background: #111;
+}
+.vbar {
+  width: 6px;
+  height: 16px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #25f4ee, #1989fa 55%, #fe2c55);
+  animation: eq 1.1s ease-in-out infinite;
+  transform-origin: bottom;
+}
+.vbar1 { animation-delay: 0s;    animation-duration: 1.0s; }
+.vbar2 { animation-delay: 0.3s;  animation-duration: 0.9s; background: linear-gradient(180deg, #fe2c55, #ff5577 55%, #ff8a9d); }
+.vbar3 { animation-delay: 0.5s;  animation-duration: 1.3s; }
+.vbar4 { animation-delay: 0.15s; animation-duration: 0.8s; background: linear-gradient(180deg, #fe2c55, #ff5577 55%, #ff8a9d); }
+.vbar5 { animation-delay: 0.4s;  animation-duration: 1.1s; }
+.vbar6 { animation-delay: 0.65s; animation-duration: 0.7s; background: linear-gradient(180deg, #25f4ee, #5b8def 55%, #1989fa); }
+.vbar7 { animation-delay: 0.25s; animation-duration: 1.2s; background: linear-gradient(180deg, #fe2c55, #ff5577 55%, #ff8a9d); }
+.vbar8 { animation-delay: 0.55s; animation-duration: 0.95s; }
+@keyframes eq {
+  0%, 100% { height: 10px; }
+  20%      { height: 44px; }
+  40%      { height: 22px; }
+  60%      { height: 50px; }
+  80%      { height: 16px; }
+}
 .loading { text-align: center; padding: 60px; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
 .grid-item { background: #111; border-radius: 6px; overflow: hidden; }

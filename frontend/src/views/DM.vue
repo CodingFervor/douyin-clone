@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { getConversations } from '../api'
@@ -8,16 +8,38 @@ const router = useRouter()
 const conversations = ref([])
 const loading = ref(true)
 
+// ===================== Feature: Conversation search (私信搜索) =====================
+// Filters the conversation list by the other user's name in real-time.
+const searchQuery = ref('')
+const filteredConversations = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return conversations.value
+  return conversations.value.filter((c) => {
+    const name = (c.other_name || '').toLowerCase()
+    return name.includes(q)
+  })
+})
+
 onMounted(async () => { try { conversations.value = await getConversations() } catch (e) { showToast('加载失败') } finally { loading.value = false } })
 </script>
 
 <template>
   <div class="dm-page">
     <van-nav-bar title="私信" left-arrow @click-left="router.back()" fixed placeholder />
+    <!-- Feature: 私信搜索 — search bar at the top filters conversations by name. -->
+    <div class="dm-search-wrap" v-if="!loading && conversations.length">
+      <div class="dm-search">
+        <span class="dm-search-icon">🔍</span>
+        <input v-model="searchQuery" class="dm-search-input" placeholder="搜索昵称" />
+        <span v-if="searchQuery" class="dm-search-clear" @click="searchQuery = ''">✕</span>
+      </div>
+    </div>
     <div v-if="loading" class="loading"><van-loading color="#fe2c55" /></div>
     <van-empty v-else-if="!conversations.length" description="还没有私信" />
+    <!-- Feature: 私信搜索 — empty state when the query matches nothing. -->
+    <van-empty v-else-if="!filteredConversations.length" description="未找到" />
     <div v-else class="conv-list">
-      <div v-for="c in conversations" :key="c.other_id" class="conv-item" @click="router.push('/chat/' + c.other_id)">
+      <div v-for="c in filteredConversations" :key="c.other_id" class="conv-item" @click="router.push('/chat/' + c.other_id)">
         <img class="ci-avatar" :src="c.other_avatar || 'https://via.placeholder.com/48'" />
         <div class="ci-info">
           <div class="ci-name">{{ c.other_name }}</div>
@@ -32,6 +54,12 @@ onMounted(async () => { try { conversations.value = await getConversations() } c
 <style scoped>
 .dm-page { height: 100vh; overflow-y: auto; background: #000; }
 .loading { text-align: center; padding: 60px; }
+.dm-search-wrap { padding: 10px 12px; background: #000; position: sticky; top: 46px; z-index: 10; }
+.dm-search { display: flex; align-items: center; gap: 8px; background: #161616; border-radius: 20px; padding: 0 12px; height: 36px; }
+.dm-search-icon { font-size: 13px; opacity: 0.7; flex-shrink: 0; }
+.dm-search-input { flex: 1; background: transparent; border: none; outline: none; color: #fff; font-size: 14px; height: 100%; }
+.dm-search-input::placeholder { color: #888; }
+.dm-search-clear { color: #888; font-size: 14px; padding: 4px; flex-shrink: 0; cursor: pointer; }
 .conv-item { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: #161616; border-bottom: 1px solid #1a1a1a; }
 .ci-avatar { width: 48px; height: 48px; border-radius: 50%; }
 .ci-info { flex: 1; min-width: 0; }
