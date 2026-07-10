@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showSuccessToast, showDialog } from 'vant'
-import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts, startPK, getActivePK, scorePK, guardHost, getGuardStatus, dropRedPacket, getActiveRedPacket, grabRedPacket, getContributors, contribute, banUser, getSuggestFollows } from '../api'
+import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts, startPK, getActivePK, scorePK, guardHost, getGuardStatus, dropRedPacket, getActiveRedPacket, grabRedPacket, getContributors, contribute, banUser, getSuggestFollows, getUser, toggleFollow } from '../api'
 
 const route = useRoute()
 const router = useRouter()
@@ -391,6 +391,63 @@ const tierBreakdown = computed(() => {
   }
   return { iron, loyal }
 })
+
+// ===================== Feature: 主播名片 (live anchor intro card) =====================
+// A bottom-sheet "business card" for the host. Tapping the host info in the top
+// bar opens it. It fetches the host's full profile via getUser(host_id) and shows
+// avatar, stats, bio, tags, and action buttons (follow / DM / homepage).
+//   - follow uses the existing toggleFollow API with the host_id
+//   - 私信 navigates to /chat/:host_id
+//   - 查看主页 navigates to /user/:host_id
+// Followers/likes come from the profile; "直播时长(小时)" is demo data.
+const showAnchor = ref(false)
+const anchor = ref(null)        // full host profile from getUser()
+const anchorLoading = ref(false)
+// Demo-only stat: total live hours is not tracked by the backend, so we derive a
+// stable-ish demo number from the host id so it doesn't reshuffle every open.
+const anchorLiveHours = computed(() => {
+  const base = (room.value?.host_id || 1) % 200
+  return base + 128
+})
+
+// Open the anchor card: show the sheet immediately with the room's basic host
+// info, then enrich with the full profile from getUser.
+function openAnchorCard() {
+  showAnchor.value = true
+  anchorLoading.value = true
+  // Seed with the room's host info so the card isn't empty during the fetch.
+  if (room.value) {
+    anchor.value = {
+      id: room.value.host_id,
+      nickname: room.value.host_name,
+      avatar: room.value.host_avatar,
+      bio: '',
+      followers_count: 0,
+      likes_count: 0,
+      is_following: false,
+    }
+  }
+  const hid = room.value?.host_id
+  if (!hid) { anchorLoading.value = false; return }
+  getUser(hid)
+    .then((u) => { anchor.value = u })
+    .catch(() => {})
+    .finally(() => { anchorLoading.value = false })
+}
+
+// Follow / unfollow the host from within the card.
+async function doAnchorFollow() {
+  if (!localStorage.getItem('dy_token')) { router.push('/login'); return }
+  const hid = anchor.value?.id || room.value?.host_id
+  if (!hid) return
+  try {
+    const res = await toggleFollow(hid)
+    if (anchor.value) anchor.value.is_following = res.following
+    showSuccessToast(res.following ? '关注成功' : '已取消关注')
+  } catch (e) {
+    showToast('操作失败')
+  }
+}
 </script>
 
 <template>
@@ -404,14 +461,15 @@ const tierBreakdown = computed(() => {
     <!-- Top bar -->
     <div class="top-bar">
       <van-icon name="arrow-left" size="22" color="#fff" @click="router.back()" />
-      <div class="host-info">
+      <!-- Feature: 主播名片 — tapping the host info opens the anchor intro card -->
+      <div class="host-info host-info-tap" @click="openAnchorCard">
         <img class="host-avatar" :style="{ borderColor: themeAccent }" :src="room.host_avatar" />
         <div>
           <div class="host-name">{{ room.host_name }}</div>
           <div class="host-viewers">{{ fmt(room.viewers) }}观看</div>
         </div>
+        <van-icon name="arrow-down" size="12" color="rgba(255,255,255,0.7)" class="host-arrow" />
       </div>
-      <van-button size="mini" round :color="themeAccent" @click="showToast('关注成功')">+ 关注</van-button>
       <van-button size="mini" round :color="isGuarding ? '#9c27b0' : '#333'" @click="doGuard">{{ isGuarding ? '已守护' : '守护' }}</van-button>
     </div>
 
@@ -688,6 +746,63 @@ const tierBreakdown = computed(() => {
           </div>
           <van-empty v-if="!gifts.length" description="暂无礼物" image="search" />
         </div>
+      </div>
+    </van-popup>
+
+    <!-- ===================== Feature: 主播名片 (anchor intro card) ===================== -->
+    <van-popup v-model:show="showAnchor" position="bottom" round closeable :style="{ height: '62%' }">
+      <div class="anchor-card">
+        <!-- Gradient header with large avatar + name -->
+        <div class="ac-header">
+          <div class="ac-gradient"></div>
+          <img class="ac-avatar" :src="anchor?.avatar || 'https://via.placeholder.com/80'" />
+          <div class="ac-name van-ellipsis">{{ anchor?.nickname || room?.host_name }}</div>
+          <!-- Tags / badges -->
+          <div class="ac-tags">
+            <span class="ac-tag tag-creator">优质创作者</span>
+            <span class="ac-tag tag-active">活跃主播</span>
+          </div>
+        </div>
+
+        <div v-if="anchorLoading" class="ac-loading"><van-loading color="#fe2c55" /></div>
+
+        <template v-else>
+          <!-- Stats row: followers / likes / live hours (demo) -->
+          <div class="ac-stats">
+            <div class="ac-stat">
+              <div class="ac-stat-val">{{ fmt(anchor?.followers_count || 0) }}</div>
+              <div class="ac-stat-label">粉丝</div>
+            </div>
+            <div class="ac-divider"></div>
+            <div class="ac-stat">
+              <div class="ac-stat-val">{{ fmt(anchor?.likes_count || 0) }}</div>
+              <div class="ac-stat-label">获赞</div>
+            </div>
+            <div class="ac-divider"></div>
+            <div class="ac-stat">
+              <div class="ac-stat-val">{{ fmt(anchorLiveHours) }}</div>
+              <div class="ac-stat-label">直播时长(时)</div>
+            </div>
+          </div>
+
+          <!-- Bio -->
+          <div class="ac-bio">
+            {{ anchor?.bio || '这位主播很懒，还没有填写简介～' }}
+          </div>
+
+          <!-- Action buttons -->
+          <div class="ac-actions">
+            <van-button
+              round
+              block
+              :color="anchor?.is_following ? '#333' : '#fe2c55'"
+              class="ac-btn"
+              @click="doAnchorFollow"
+            >{{ anchor?.is_following ? '已关注' : '+ 关注' }}</van-button>
+            <van-button round block class="ac-btn ac-btn-outline" @click="router.push('/chat/' + (anchor?.id || room?.host_id))">私信</van-button>
+            <van-button round block class="ac-btn ac-btn-outline" @click="router.push('/user/' + (anchor?.id || room?.host_id))">查看主页</van-button>
+          </div>
+        </template>
       </div>
     </van-popup>
   </div>
@@ -1002,4 +1117,104 @@ const tierBreakdown = computed(() => {
   border: 2px solid #161616;
 }
 .tp-label { color: #fff; font-size: 12px; }
+
+/* ===================== Feature: 主播名片 (anchor intro card) ===================== */
+/* Make the host info in the top bar feel tappable. */
+.host-info-tap { cursor: pointer; padding: 2px 6px 2px 2px; border-radius: 18px; transition: background 0.2s; }
+.host-info-tap:active { background: rgba(255,255,255,0.12); }
+.host-arrow { margin-left: 2px; }
+
+/* Anchor card sheet */
+.anchor-card {
+  background: #161616;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 24px;
+  overflow-y: auto;
+}
+
+/* Gradient header backdrop */
+.ac-header {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 16px 18px;
+  overflow: hidden;
+}
+.ac-gradient {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, #fe2c55 0%, #ff5c7a 40%, #9c27b0 100%);
+  opacity: 0.9;
+}
+/* Keep header content above the gradient */
+.ac-avatar,
+.ac-name,
+.ac-tags { position: relative; z-index: 1; }
+.ac-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.9);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.ac-name {
+  color: #fff;
+  font-size: 19px;
+  font-weight: bold;
+  margin-top: 10px;
+  max-width: 70%;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+
+/* Tags row */
+.ac-tags { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; justify-content: center; }
+.ac-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 9px;
+  line-height: 15px;
+}
+.tag-creator { background: rgba(255,255,255,0.25); color: #fff; border: 1px solid rgba(255,255,255,0.5); }
+.tag-active { background: rgba(255,215,0,0.9); color: #4a3500; }
+
+/* Stats row */
+.ac-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 18px 16px 8px;
+  width: 100%;
+}
+.ac-stat { display: flex; flex-direction: column; align-items: center; }
+.ac-stat-val { color: #fff; font-size: 18px; font-weight: bold; }
+.ac-stat-label { color: #888; font-size: 11px; margin-top: 2px; }
+.ac-divider { width: 1px; height: 22px; background: #333; }
+
+/* Bio */
+.ac-bio {
+  color: #ccc;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+  padding: 8px 28px 18px;
+}
+
+/* Action buttons */
+.ac-actions { display: flex; flex-direction: column; gap: 10px; width: 100%; padding: 0 28px; box-sizing: border-box; }
+.ac-btn { flex: 1; }
+.ac-btn-outline {
+  background: transparent;
+  border: 1px solid #444;
+  color: #fff;
+}
+.ac-btn-outline :deep(.van-button__text) { color: #fff; }
+
+.ac-loading { padding: 60px; }
 </style>
