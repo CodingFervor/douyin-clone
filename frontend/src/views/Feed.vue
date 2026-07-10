@@ -44,6 +44,12 @@ const replyText = ref('')
 const replyTo = ref(null) // comment being replied to (null = top-level)
 const currentVideoId = ref(null)
 
+// ---- Feature: Comment sort options (评论排序) ----
+// 'default' keeps the server order (backend returns by likes desc). 'hot' re-
+// sorts top-level comments by likes desc; 'new' sorts by id desc (newest first).
+// The sort is applied to the regular (non-pinned) comment list only.
+const commentSort = ref('default')
+
 // ---- Feature: Comment emoji reactions (评论表情回应) ----
 // Purely frontend state — reactions reset when the comment popup closes.
 // commentReactions: { [commentId]: { [emoji]: count } }
@@ -398,6 +404,35 @@ function recomputePinned() {
     : list.slice()
 }
 
+// ---- Feature: Comment sort options (评论排序) ----
+// sortedComments applies the selected sort to the regular comment list. To keep
+// reply nesting intact, we order by the top-level comments and re-attach each
+// child (parent_id != 0) right after its parent. 'default' preserves server
+// order, 'hot' sorts top-level by likes desc, 'new' by id desc.
+const sortedComments = computed(() => {
+  const sort = commentSort.value
+  const list = regularComments.value
+  if (sort === 'default') return list
+  const tops = list.filter((c) => !c.parent_id || c.parent_id === 0)
+  const children = list.filter((c) => c.parent_id && c.parent_id !== 0)
+  if (sort === 'hot') {
+    tops.sort((a, b) => (b.likes || 0) - (a.likes || 0))
+  } else if (sort === 'new') {
+    tops.sort((a, b) => (b.id || 0) - (a.id || 0))
+  }
+  // Re-attach each child after its parent; children keep their relative order.
+  const out = []
+  for (const t of tops) {
+    out.push(t)
+    const kids = children.filter((c) => c.parent_id === t.id)
+    out.push(...kids)
+  }
+  // Orphans (child whose parent was the pinned comment) stay at the end.
+  const placed = new Set(out.map((c) => c.id))
+  children.filter((c) => !placed.has(c.id)).forEach((c) => out.push(c))
+  return out
+})
+
 onMounted(() => loadFeed('recommend'))
 onActivated(() => { if (!videos.value.length) loadFeed(activeTab.value) })
 
@@ -594,6 +629,8 @@ async function openComments(v) {
   currentVideoId.value = v.id
   replyTo.value = null
   replyText.value = ''
+  // Reset the sort to default each time the popup is opened for a new video.
+  commentSort.value = 'default'
   showComment.value = true
   try {
     commentList.value = await getComments(v.id)
@@ -907,6 +944,44 @@ async function copyLink(v) {
     showToast('复制失败')
   }
 }
+
+// ===================== Feature: Video frame capture (视频截图) =====================
+// Captures the current video frame to a JPEG and triggers a download named
+// "screenshot.jpg". Uses an off-DOM canvas + drawImage + toDataURL. Errors
+// (e.g. tainted canvas from cross-origin video) are caught and surfaced as a
+// toast rather than crashing the feed.
+function captureScreenshot() {
+  try {
+    const vids = document.querySelectorAll('.feed-video')
+    const video = vids[index.value]
+    if (!video) {
+      showToast('视频未就绪')
+      return
+    }
+    // Need a frame that has actually loaded to draw.
+    if (!video.videoWidth && !video.videoHeight) {
+      showToast('视频未就绪')
+      return
+    }
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth || video.clientWidth || 640
+    canvas.height = video.videoHeight || video.clientHeight || 360
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    const dataURL = canvas.toDataURL('image/jpeg', 0.9)
+    const a = document.createElement('a')
+    a.href = dataURL
+    a.download = 'screenshot.jpg'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    showSuccessToast('截图已保存')
+  } catch (e) {
+    // A cross-origin video without CORS headers taints the canvas, which makes
+    // toDataURL throw a SecurityError. Surface a friendly message in that case.
+    showToast('截图失败')
+  }
+}
 </script>
 
 <template>
@@ -1041,6 +1116,12 @@ async function copyLink(v) {
             <van-icon name="share-o" color="#fff" size="32" />
             <span>分享</span>
           </div>
+          <!-- ===================== Feature: Video frame capture (视频截图) =====================
+               Captures the current frame to a JPEG download. -->
+          <div class="action-item" @click="captureScreenshot">
+            <span class="shot-icon">📸</span>
+            <span>截图</span>
+          </div>
           <div class="disc"><van-icon name="music-o" /></div>
         </div>
         <!-- Bottom info -->
@@ -1089,6 +1170,18 @@ async function copyLink(v) {
     <van-popup v-model:show="showComment" position="bottom" round :style="{ height: '50%' }">
       <div class="comment-panel">
         <div class="cp-head">{{ commentList.length }} 条评论</div>
+        <!-- ===================== Feature: Comment sort options (评论排序) =====================
+             Three small tabs that re-sort the (non-pinned) comment list. Default
+             keeps server order; 最热 sorts by likes desc; 最新 by id desc. -->
+        <div class="cp-sort">
+          <span
+            v-for="opt in [{ k: 'default', t: '默认' }, { k: 'hot', t: '最热' }, { k: 'new', t: '最新' }]"
+            :key="opt.k"
+            class="cp-sort-tab"
+            :class="{ active: commentSort === opt.k }"
+            @click="commentSort = opt.k"
+          >{{ opt.t }}</span>
+        </div>
         <div class="cp-list">
           <!-- ===================== Feature: Pinned comment (评论置顶) =====================
                The author's comment or the most-liked comment is pinned at the top
@@ -1136,7 +1229,7 @@ async function copyLink(v) {
             </div>
           </div>
           <div
-            v-for="c in regularComments"
+            v-for="c in sortedComments"
             :key="c.id"
             class="cp-item"
             :class="{ 'cp-item-child': c.parent_id && c.parent_id !== 0 }"
@@ -1326,6 +1419,8 @@ async function copyLink(v) {
 .follow-plus { position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%); width: 20px; height: 20px; background: #fe2c55; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
 .action-item { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .action-item span { color: #fff; font-size: 12px; }
+/* Feature: 视频截图 — emoji glyph sized to match the 32px van-icons in the rail. */
+.action-item .shot-icon { font-size: 30px; line-height: 1; }
 .disc { width: 48px; height: 48px; border-radius: 50%; background: #222; display: flex; align-items: center; justify-content: center; animation: spin 4s linear infinite; }
 .disc .van-icon { color: #25f4ee; font-size: 24px; }
 @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
@@ -1373,6 +1468,15 @@ async function copyLink(v) {
 .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 5; }
 .comment-panel { display: flex; flex-direction: column; height: 100%; background: #161616; }
 .cp-head { text-align: center; padding: 14px; color: #fff; font-size: 15px; border-bottom: 1px solid #222; }
+/* Feature: 评论排序 — row of three small sort tabs under the popup header. */
+.cp-sort { display: flex; gap: 18px; padding: 8px 16px; }
+.cp-sort-tab {
+  color: #888;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+.cp-sort-tab.active { color: #fe2c55; font-weight: 600; }
 .cp-list { flex: 1; overflow-y: auto; padding: 8px 12px; }
 .cp-item { display: flex; gap: 10px; padding: 12px 0; }
 /* Child comments (parent_id != 0) are indented to reflect the reply nesting. */

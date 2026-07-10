@@ -163,6 +163,16 @@ const filters = [
   { value: 'vivid', label: '鲜艳' },
 ]
 
+// ===================== Feature: 发布增强 (upload tips) =====================
+// Expandable "拍摄建议" section with shooting tips for the creator.
+const tipsOpen = ref(false)
+const shootingTips = [
+  '💡 竖屏拍摄效果更佳(9:16)',
+  '💡 保持画面稳定，避免晃动',
+  '💡 光线充足时画质更好',
+  '💡 添加热门话题可获得更多推荐',
+]
+
 function onFile(item) {
   // Revoke any previous object URL to avoid leaking blob URLs.
   if (pickerVideoRef.value && pickerVideoRef.value.startsWith('blob:')) {
@@ -236,7 +246,18 @@ async function submit() {
       </van-tab>
     </van-tabs>
 
-    <!-- ===================== Feature: 视频封面选择 (cover frame picker) ===================== -->
+    <!-- ===================== Feature: 发布增强 (拍摄建议 expandable tips) ===================== -->
+    <div class="tips-card">
+      <div class="tips-head" @click="tipsOpen = !tipsOpen">
+        <span class="tips-title">💡 拍摄建议</span>
+        <van-icon :name="tipsOpen ? 'arrow-up' : 'arrow-down'" color="#fe2c55" size="16" />
+      </div>
+      <transition name="tips-slide">
+        <ul v-show="tipsOpen" class="tips-list">
+          <li v-for="(tip, i) in shootingTips" :key="i" class="tip-line">{{ tip }}</li>
+        </ul>
+      </transition>
+    </div>
     <div v-if="coverSourceUrl" class="cover-picker">
       <div class="cp-title">选择封面</div>
       <div class="cp-row">
@@ -270,6 +291,8 @@ async function submit() {
         @input="onScrub"
       />
       <div v-else class="cp-hint">正在加载视频…</div>
+      <!-- ===================== Feature: 发布增强 (封面优化建议) ===================== -->
+      <div class="cover-tip">💡 封面优化建议：选择画面清晰、主体突出的瞬间作为封面，可显著提升点击率</div>
     </div>
 
     <van-cell-group inset style="margin-top: 12px; background: #161616">
@@ -298,6 +321,8 @@ async function submit() {
     </van-cell-group>
 
     <van-progress v-if="uploading" :percentage="progress" color="#fe2c55" style="margin: 12px 24px; width: calc(100% - 48px)" />
+    <!-- ===================== Feature: 发布增强 (预计处理时间) ===================== -->
+    <div class="process-time"><van-icon name="clock-o" color="#25f4ee" size="14" /> 预计处理时间: ~3秒</div>
     <div style="margin: 20px">
       <van-button type="primary" color="#fe2c55" block round :loading="uploading" @click="submit">发布</van-button>
     </div>
@@ -375,4 +400,27 @@ async function submit() {
 .ai-text { color: #fff; font-size: 14px; line-height: 20px; flex: 1; }
 .ai-use { color: #fe2c55; font-size: 12px; font-weight: bold; white-space: nowrap; }
 .ai-footer { display: flex; justify-content: center; margin-top: 18px; }
+
+/* ===================== Feature: 发布增强 (upload tips) ===================== */
+.tips-card {
+  margin: 12px 16px 0; padding: 12px 14px; background: #161616; border-radius: 12px;
+}
+.tips-head {
+  display: flex; align-items: center; justify-content: space-between; cursor: pointer;
+}
+.tips-title { color: #fff; font-size: 14px; font-weight: bold; }
+.tips-list { margin: 12px 0 0; padding: 0; list-style: none; }
+.tip-line { color: #ccc; font-size: 13px; line-height: 24px; }
+.cover-tip {
+  color: #25f4ee; font-size: 11px; margin-top: 10px; line-height: 16px;
+  background: rgba(37,244,238,0.08); padding: 8px 10px; border-radius: 8px;
+}
+.process-time {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  color: #25f4ee; font-size: 12px; margin-top: 4px;
+}
+/* expand/collapse transition for the tips list */
+.tips-slide-enter-active, .tips-slide-leave-active { transition: all 0.25s ease; overflow: hidden; }
+.tips-slide-enter-from, .tips-slide-leave-to { opacity: 0; max-height: 0; margin-top: 0; }
+.tips-slide-enter-to, .tips-slide-leave-from { opacity: 1; max-height: 200px; }
 </style>

@@ -109,6 +109,8 @@ onMounted(async () => {
   loadContributors()
   // Feature: 直播间主题装扮 — restore the saved theme on mount.
   restoreTheme()
+  // Feature: 直播间幸运数字 — load today's lucky points on mount.
+  loadLuckyPoints()
   pollTimer = setInterval(pollMessages, 3000)
 })
 
@@ -329,6 +331,102 @@ function rollDice() {
   }, 1500)
 }
 
+// ===================== Feature: Live room lucky number (直播间幸运数字) =====================
+// A pure-frontend guessing game. The user picks a number 1-9; the system rolls
+// a random 1-9. An exact match awards +100 lucky points and triggers a golden
+// explosion animation; a near miss (±1) awards +10; otherwise nothing. Lucky
+// points persist per-day in localStorage (keyed by YYYY-MM-DD) so "今日幸运值"
+// resets each day.
+const LUCKY_KEY = 'dy_lucky_points'
+const showLucky = ref(false)        // popup visibility
+const luckyPick = ref(null)         // the number the user selected (1-9)
+const luckyResult = ref(null)       // { pick, roll, points, msg, hit } from the last guess
+const luckyPoints = ref(0)          // today's accumulated lucky points
+const luckyExplosions = ref([])     // active golden explosion particles [{id}]
+let luckyExplosionSeq = 0
+
+// todayKey returns the current date as YYYY-MM-DD for per-day point storage.
+function todayKey() {
+  const d = new Date()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
+// loadLuckyPoints restores today's points from localStorage. The stored value is
+// an object keyed by date, so points from a previous day are ignored (reset).
+function loadLuckyPoints() {
+  try {
+    const raw = localStorage.getItem(LUCKY_KEY)
+    if (!raw) { luckyPoints.value = 0; return }
+    const map = JSON.parse(raw)
+    luckyPoints.value = map[todayKey()] || 0
+  } catch (e) {
+    luckyPoints.value = 0
+  }
+}
+
+// saveLuckyPoints persists today's points back to the date-keyed map.
+function saveLuckyPoints() {
+  try {
+    const raw = localStorage.getItem(LUCKY_KEY)
+    const map = raw ? JSON.parse(raw) : {}
+    map[todayKey()] = luckyPoints.value
+    localStorage.setItem(LUCKY_KEY, JSON.stringify(map))
+  } catch (e) {
+    // localStorage may be unavailable — ignore.
+  }
+}
+
+// playLucky resolves a guess: rolls 1-9, computes points + message, triggers the
+// golden explosion on a hit, and accumulates points into today's total.
+function playLucky() {
+  if (luckyPick.value == null) return
+  const pick = luckyPick.value
+  const roll = Math.floor(Math.random() * 9) + 1
+  let points = 0
+  let msg = ''
+  let hit = false
+  if (pick === roll) {
+    points = 100
+    msg = '🎉 恭喜！幸运值+100'
+    hit = true
+    triggerLuckyExplosion()
+  } else if (Math.abs(pick - roll) === 1) {
+    points = 10
+    msg = '差一点点！幸运值+10'
+  } else {
+    msg = '再试试吧~'
+  }
+  luckyPoints.value += points
+  if (points > 0) saveLuckyPoints()
+  luckyResult.value = { pick, roll, points, msg, hit }
+}
+
+// resetLuckyRound clears the selection + result so the user can guess again.
+function resetLuckyRound() {
+  luckyPick.value = null
+  luckyResult.value = null
+}
+
+// triggerLuckyExplosion spawns a burst of golden particles that animate outward,
+// each auto-removed after the ~1s animation finishes.
+function triggerLuckyExplosion() {
+  for (let i = 0; i < 24; i++) {
+    const id = ++luckyExplosionSeq
+    luckyExplosions.value.push({
+      id,
+      // Spread the burst across the top half of the popup centered on the result.
+      x: 50 + (Math.random() - 0.5) * 60,
+      y: 30 + (Math.random() - 0.5) * 40,
+      angle: Math.random() * Math.PI * 2,
+    })
+    setTimeout(() => {
+      luckyExplosions.value = luckyExplosions.value.filter((p) => p.id !== id)
+    }, 1000)
+  }
+}
+
 // ===================== Feature: Live viewer list (直播间观众列表) =====================
 // There is no dedicated viewer API, so we compose the list from:
 //   1. recent contributors (already loaded — treated as "recent viewers")
@@ -540,6 +638,9 @@ async function doAnchorFollow() {
 
     <!-- ===================== Feature: 幸运骰子小游戏 (lucky dice) entry ===================== -->
     <div class="dice-entry" @click="showDice = true">🎲 骰子</div>
+
+    <!-- ===================== Feature: Live room lucky number (直播间幸运数字) entry ===================== -->
+    <div class="lucky-entry" @click="showLucky = true">🔮 幸运数字</div>
 
     <!-- ===================== Feature: 直播间主题装扮 (theme picker) ===================== -->
     <div class="theme-entry" @click="showTheme = true">
@@ -771,6 +872,63 @@ async function doAnchorFollow() {
           class="dice-roll-btn"
           @click="rollDice"
         >{{ diceRolling ? '摇骰中…' : '摇骰子' }}</van-button>
+      </div>
+    </van-popup>
+
+    <!-- ===================== Feature: Live room lucky number (直播间幸运数字) popup =====================
+         Pick 1-9, system rolls 1-9. Match → +100 + golden explosion; ±1 → +10;
+         else → 再试试吧. Lucky points persist per-day in localStorage. -->
+    <van-popup v-model:show="showLucky" position="bottom" round :style="{ height: '50%' }">
+      <div class="lucky-panel">
+        <div class="lucky-head">🔮 幸运数字</div>
+        <div class="lucky-sub">猜中1-9，幸运值+100 · 差一点+10</div>
+
+        <!-- Today's lucky points -->
+        <div class="lucky-points">今日幸运值: <span>{{ luckyPoints }}</span></div>
+
+        <!-- Number picker 1-9 -->
+        <div v-if="!luckyResult" class="lucky-pick">
+          <div class="lp-prompt">请选择一个数字 (1-9)</div>
+          <div class="lp-grid">
+            <div
+              v-for="n in 9"
+              :key="n"
+              class="lp-num"
+              :class="{ picked: luckyPick === n }"
+              @click="luckyPick = n"
+            >{{ n }}</div>
+          </div>
+          <van-button
+            block
+            round
+            :color="themeAccent"
+            :disabled="luckyPick == null"
+            class="lp-go-btn"
+            @click="playLucky"
+          >开始猜数字</van-button>
+        </div>
+
+        <!-- Result view -->
+        <div v-else class="lucky-result" :class="{ hit: luckyResult.hit }">
+          <!-- Golden explosion particles on a match -->
+          <div class="lp-burst-layer">
+            <div
+              v-for="p in luckyExplosions"
+              :key="p.id"
+              class="lp-particle"
+              :style="{ left: p.x + '%', top: p.y + '%', '--ang': p.angle + 'rad' }"
+            >✨</div>
+          </div>
+          <div class="lr-roll">
+            <span class="lr-label">你选的</span>
+            <span class="lr-num">{{ luckyResult.pick }}</span>
+            <span class="lr-vs">VS</span>
+            <span class="lr-label">系统</span>
+            <span class="lr-num">{{ luckyResult.roll }}</span>
+          </div>
+          <div class="lr-msg" :class="{ hit: luckyResult.hit }">{{ luckyResult.msg }}</div>
+          <van-button block round :color="themeAccent" class="lr-again-btn" @click="resetLuckyRound">再来一次</van-button>
+        </div>
       </div>
     </van-popup>
 
@@ -1160,6 +1318,146 @@ async function doAnchorFollow() {
 /* Best roll */
 .dice-best { color: #25f4ee; font-size: 13px; margin-top: 8px; }
 .dice-roll-btn { margin-top: 14px; }
+
+/* ===================== Feature: Live room lucky number (直播间幸运数字) ===================== */
+/* Entry button — sits below the dice entry, gold-toned to match the lucky theme. */
+.lucky-entry {
+  position: absolute;
+  top: 258px;
+  right: 16px;
+  z-index: 10;
+  background: linear-gradient(135deg, rgba(255,215,0,0.95), rgba(255,180,0,0.95));
+  color: #4a2c00;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(255,215,0,0.4);
+}
+.lucky-entry:active { transform: scale(0.95); }
+/* Popup panel */
+.lucky-panel {
+  position: relative;
+  background: #161616;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 16px;
+  gap: 6px;
+  overflow: hidden;
+}
+.lucky-head { color: #ffd700; font-size: 17px; font-weight: bold; }
+.lucky-sub { color: #888; font-size: 12px; margin-bottom: 4px; }
+.lucky-points {
+  color: #ffd700;
+  font-size: 14px;
+  font-weight: 600;
+  background: rgba(255,215,0,0.12);
+  border: 1px solid rgba(255,215,0,0.4);
+  padding: 4px 14px;
+  border-radius: 14px;
+  margin-bottom: 6px;
+}
+.lucky-points span { font-size: 18px; font-weight: bold; }
+
+/* Number picker */
+.lucky-pick { display: flex; flex-direction: column; align-items: center; width: 100%; }
+.lp-prompt { color: #fff; font-size: 14px; margin-bottom: 12px; }
+.lp-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  width: 100%;
+  max-width: 240px;
+  margin-bottom: 18px;
+}
+.lp-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  font-size: 22px;
+  font-weight: bold;
+  color: #fff;
+  background: #2a2a2a;
+  border: 2px solid #333;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  user-select: none;
+}
+.lp-num:active { transform: scale(0.94); }
+.lp-num.picked {
+  background: rgba(255,215,0,0.18);
+  border-color: #ffd700;
+  color: #ffd700;
+}
+.lp-go-btn { max-width: 260px; }
+
+/* Result view */
+.lucky-result {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+.lr-roll {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #888;
+  font-size: 12px;
+  margin: 10px 0 12px;
+}
+.lr-num {
+  color: #fff;
+  font-size: 30px;
+  font-weight: bold;
+}
+.lr-vs { color: #ffd700; font-size: 13px; font-weight: bold; margin: 0 4px; }
+.lr-msg {
+  color: #fff;
+  font-size: 17px;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 18px;
+}
+.lr-msg.hit {
+  color: #ffd700;
+  font-size: 20px;
+  text-shadow: 0 0 16px rgba(255,215,0,0.8);
+  animation: lrHitPulse 0.6s ease-out;
+}
+@keyframes lrHitPulse {
+  0% { transform: scale(0.7); opacity: 0; }
+  60% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.lr-again-btn { max-width: 260px; }
+
+/* Golden explosion — particles spawn near the result and fly outward. */
+.lp-burst-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.lp-particle {
+  position: absolute;
+  font-size: 20px;
+  transform: translate(-50%, -50%);
+  animation: lpBurst 1s ease-out forwards;
+}
+@keyframes lpBurst {
+  0% { transform: translate(-50%, -50%) translate(0, 0) scale(0.4) rotate(0deg); opacity: 1; }
+  100% {
+    transform: translate(-50%, -50%) translate(calc(cos(var(--ang)) * 90px), calc(sin(var(--ang)) * 90px)) scale(1.2) rotate(180deg);
+    opacity: 0;
+  }
+}
 
 /* ===================== Feature: 直播间主题装扮 (theme picker) ===================== */
 /* Entry button near the top bar — small accent swatch + label. */

@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { unreadTotal } from './utils/notifyStore'
 
 const route = useRoute()
 const showTabbar = computed(() => route.meta.tab !== undefined)
@@ -23,7 +24,15 @@ const tabs = [
       </keep-alive>
     </router-view>
     <van-tabbar v-if="showTabbar" v-model="active" route active-color="#fe2c55" inactive-color="#999" class="dy-tabbar">
-      <van-tabbar-item v-for="t in tabs" :key="t.name" :to="{ name: t.name }" :icon="t.icon">{{ t.label }}</van-tabbar-item>
+      <van-tabbar-item v-for="t in tabs" :key="t.name" :to="{ name: t.name }" :icon="t.icon">
+        {{ t.label }}
+        <!-- Unread notification badge on the Messages tab -->
+        <template v-if="t.name === 'messages' && unreadTotal > 0" #icon>
+          <van-badge :content="unreadTotal > 99 ? '99+' : unreadTotal">
+            <van-icon :name="t.icon" />
+          </van-badge>
+        </template>
+      </van-tabbar-item>
     </van-tabbar>
   </div>
 </template>
