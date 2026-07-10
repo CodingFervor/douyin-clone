@@ -570,6 +570,10 @@ onUnmounted(() => {
   // Feature: 视频睡眠定时 — tear down the sleep timer + tick so they don't
   // fire or leak after the component unmounts.
   clearSleep()
+  // Feature: 视频书签时间点 — clear any pending long-press timer.
+  cancelBookmarkPress()
+  // Feature: 评论草稿自动保存 — clear the debounce timer so it doesn't fire post-unmount.
+  if (draftDebounce) clearTimeout(draftDebounce)
 })
 
 async function loadFeed(tab) {
@@ -637,6 +641,8 @@ function playCurrent() {
       }
       // Reset + wire the progress bar.
       progress.value = 0
+      // Feature: 视频书签时间点 — load this video's saved bookmarks when it becomes active.
+      loadBookmarks()
       v.ontimeupdate = () => {
         if (v.duration > 0) {
           progress.value = Math.min(100, (v.currentTime / v.duration) * 100)
@@ -732,6 +738,8 @@ async function openComments(v) {
   // Reset the sort to default each time the popup is opened for a new video.
   commentSort.value = 'default'
   showComment.value = true
+  // Feature: 评论草稿自动保存 — restore any saved draft for this video.
+  restoreDraft()
   try {
     commentList.value = await getComments(v.id)
   } catch (e) {
@@ -767,6 +775,8 @@ async function sendComment() {
     commentText.value = ''
     const v = videos.value[index.value]
     if (v) v.comments_count++
+    // Feature: 评论草稿自动保存 — clear the draft once the comment is sent.
+    clearDraft()
     recomputePinned()
     // Feature: 操作音效反馈 — single tone when a comment is sent.
     playSound(playComment)
@@ -926,6 +936,9 @@ function jumpToPlaylist(i) {
 // onCommentInput watches the comment field. When the last typed char is "@",
 // open the suggestion popup and lazily load the suggested-follows list once.
 function onCommentInput() {
+  // Feature: 评论草稿自动保存 — debounce-save the draft on each input. Called
+  // first so an empty input also triggers a (debounced) draft clear.
+  onCommentDraftInput()
   const text = commentText.value
   if (!text) {
     mentionMode.value = false
@@ -1129,6 +1142,152 @@ function captureScreenshot() {
     showToast('截图失败')
   }
 }
+
+// ===================== Feature: Video bookmark timestamps (视频书签时间点) =====================
+// Users can bookmark specific timestamps while watching a video. A 🔖 button is
+// revealed by long-pressing the progress bar; tapping it saves the current
+// playback time as a bookmark. Saved bookmarks render as small dots on the
+// progress bar; tapping a dot seeks to that time. Bookmarks persist per-video
+// in localStorage keyed by video id (max 3 per video).
+const BOOKMARK_PREFIX = 'dy_bookmark_'
+const bookmarks = ref([])          // [{ time, label }] for the active video
+const showBookmarkBtn = ref(false) // 🔖 button visibility (long-press the bar)
+let bookmarkPressTimer = null      // arms the 🔖 button on long-press
+const MAX_BOOKMARKS = 3
+
+// loadBookmarks reads the saved bookmarks for the active video from localStorage.
+function loadBookmarks() {
+  const v = videos.value[index.value]
+  if (!v) { bookmarks.value = []; return }
+  try {
+    const raw = localStorage.getItem(BOOKMARK_PREFIX + v.id)
+    bookmarks.value = raw ? JSON.parse(raw) : []
+  } catch (e) {
+    bookmarks.value = []
+  }
+}
+
+// saveBookmarks persists the current bookmarks array for the active video.
+function saveBookmarks() {
+  const v = videos.value[index.value]
+  if (!v) return
+  try {
+    localStorage.setItem(BOOKMARK_PREFIX + v.id, JSON.stringify(bookmarks.value))
+  } catch (e) {
+    // localStorage may be unavailable — ignore.
+  }
+}
+
+// addBookmarkFromCurrent grabs the active video element's current time and
+// stores it as a bookmark (capped at MAX_BOOKMARKS). Duplicate timestamps
+// (within 1s) are ignored. Then hides the 🔖 button.
+function addBookmarkFromCurrent() {
+  showBookmarkBtn.value = false
+  const vids = document.querySelectorAll('.feed-video')
+  const video = vids[index.value]
+  if (!video || !video.duration) {
+    showToast('视频未就绪')
+    return
+  }
+  const t = Math.floor(video.currentTime)
+  if (bookmarks.value.some((b) => Math.abs(b.time - t) < 1)) {
+    showToast('该时间点已添加')
+    return
+  }
+  if (bookmarks.value.length >= MAX_BOOKMARKS) {
+    showToast('最多添加 ' + MAX_BOOKMARKS + ' 个书签')
+    return
+  }
+  bookmarks.value.push({ time: t, label: fmtTime(t) })
+  saveBookmarks()
+  showSuccessToast('已添加书签 ' + fmtTime(t))
+}
+
+// bookmarkPct returns the left% of a bookmark dot on the progress bar.
+function bookmarkPct(b) {
+  const vids = document.querySelectorAll('.feed-video')
+  const video = vids[index.value]
+  const dur = video && video.duration ? video.duration : 0
+  if (dur <= 0) return 0
+  return Math.min(100, Math.max(0, (b.time / dur) * 100))
+}
+
+// seekToBookmark jumps the active video to the bookmark's time.
+function seekToBookmark(b) {
+  const vids = document.querySelectorAll('.feed-video')
+  const video = vids[index.value]
+  if (!video) return
+  video.currentTime = b.time
+  if (video.paused) video.play().catch(() => {})
+}
+
+// armBookmarkBtn reveals the 🔖 button after a 500ms long-press on the bar.
+function armBookmarkBtn() {
+  cancelBookmarkPress()
+  bookmarkPressTimer = setTimeout(() => {
+    bookmarkPressTimer = null
+    showBookmarkBtn.value = true
+  }, 500)
+}
+function cancelBookmarkPress() {
+  if (bookmarkPressTimer) {
+    clearTimeout(bookmarkPressTimer)
+    bookmarkPressTimer = null
+  }
+}
+// hide the 🔖 button when the user taps elsewhere on the bar
+function hideBookmarkBtn() {
+  showBookmarkBtn.value = false
+}
+
+// ===================== Feature: Comment draft auto-save (评论草稿自动保存) =====================
+// When the user types in the comment input, the draft is auto-saved to
+// localStorage after a 1s debounce. On opening comments for a video, a saved
+// draft is restored and a "📝草稿已恢复" toast is shown. A small "草稿" badge
+// renders in the input while a draft exists. Sending the comment clears it.
+const DRAFT_PREFIX = 'dy_comment_draft_'
+const hasDraft = ref(false) // true when a draft exists for the open video
+let draftDebounce = null    // 1s debounce timer for auto-save
+
+function draftKey() {
+  return DRAFT_PREFIX + currentVideoId.value
+}
+
+// onCommentDraftInput is bound to the comment input; it debounces a 1s save and
+// updates the "草稿" indicator. An empty input clears any saved draft.
+function onCommentDraftInput() {
+  if (draftDebounce) clearTimeout(draftDebounce)
+  draftDebounce = setTimeout(() => {
+    const text = commentText.value
+    if (text && text.trim()) {
+      try { localStorage.setItem(draftKey(), text) } catch (e) {}
+      hasDraft.value = true
+    } else {
+      clearDraft()
+    }
+  }, 1000)
+}
+
+// restoreDraft loads a saved draft for the open video (if any) and surfaces the
+// "📝草稿已恢复" toast + indicator. Called from openComments().
+function restoreDraft() {
+  let saved = null
+  try { saved = localStorage.getItem(draftKey()) } catch (e) {}
+  if (saved) {
+    commentText.value = saved
+    hasDraft.value = true
+    showToast('📝草稿已恢复')
+  } else {
+    commentText.value = ''
+    hasDraft.value = false
+  }
+}
+
+// clearDraft removes the saved draft for the open video and hides the indicator.
+function clearDraft() {
+  try { localStorage.removeItem(draftKey()) } catch (e) {}
+  hasDraft.value = false
+}
 </script>
 
 <template>
@@ -1291,9 +1450,36 @@ function captureScreenshot() {
         </div>
         <!-- Bottom info -->
         <!-- Video progress bar (only for the active slide) -->
-        <div v-if="i === index && !wallpaperMode" class="progress-bar">
-          <div class="pb-track"><div class="pb-fill" :style="{ width: progress + '%' }"></div></div>
+        <div
+          v-if="i === index && !wallpaperMode"
+          class="progress-bar"
+          @touchstart.passive="armBookmarkBtn"
+          @touchmove.passive="cancelBookmarkPress"
+          @touchend.passive="cancelBookmarkPress"
+          @mousedown="armBookmarkBtn"
+          @mouseup="cancelBookmarkPress"
+          @mouseleave="cancelBookmarkPress"
+        >
+          <div class="pb-track" @click="hideBookmarkBtn">
+            <div class="pb-fill" :style="{ width: progress + '%' }"></div>
+            <!-- ===================== Feature: 视频书签时间点 (bookmark dots) =====================
+                 Saved bookmarks render as small dots on the track; tapping a dot seeks. -->
+            <span
+              v-for="(b, bi) in bookmarks"
+              :key="bi"
+              class="pb-bookmark-dot"
+              :style="{ left: bookmarkPct(b) + '%' }"
+              @click.stop="seekToBookmark(b)"
+            ></span>
+          </div>
           <span class="pb-time">{{ currentTime }} / {{ duration }}</span>
+          <!-- 🔖 bookmark button — revealed by long-pressing the progress bar -->
+          <span
+            v-if="showBookmarkBtn"
+            class="pb-bookmark-btn"
+            @click.stop="addBookmarkFromCurrent"
+            @touchstart.stop.prevent="addBookmarkFromCurrent"
+          >🔖</span>
         </div>
         <div v-if="!wallpaperMode" class="bottom-info">
           <div class="author">@{{ v.author_name }}</div>
@@ -1457,14 +1643,18 @@ function captureScreenshot() {
           <div v-if="!commentList.length" class="cp-empty">暂无评论，来说点什么吧</div>
         </div>
         <div class="cp-input">
-          <van-field
-            v-model="commentText"
-            placeholder="说点什么，用 @ 提及好友"
-            class="cp-field"
-            @input="onCommentInput"
-            @keyup.enter="sendComment"
-            @blur="() => setTimeout(closeMention, 150)"
-          />
+          <div class="cp-input-field-wrap">
+            <!-- Feature: 评论草稿自动保存 — "草稿" badge shown while a saved draft exists -->
+            <span v-if="hasDraft" class="cp-draft-badge">草稿</span>
+            <van-field
+              v-model="commentText"
+              placeholder="说点什么，用 @ 提及好友"
+              class="cp-field"
+              @input="onCommentInput"
+              @keyup.enter="sendComment"
+              @blur="() => setTimeout(closeMention, 150)"
+            />
+          </div>
           <van-button size="small" type="primary" color="#fe2c55" @click="sendComment">发送</van-button>
         </div>
         <!-- @mention suggestion popup (评论区at提及) -->
@@ -2250,5 +2440,57 @@ function captureScreenshot() {
 @keyframes moodRingSpin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* ===================== Feature: Video bookmark timestamps (视频书签时间点) ===================== */
+/* The progress bar needs a higher z-index so its long-press + dots sit above
+   the bottom-info overlay, and the track becomes relative so dots can position. */
+.progress-bar { user-select: none; }
+.progress-bar .pb-track { position: relative; }
+/* Bookmark dots — small accent dots layered on the track; tappable to seek. */
+.pb-bookmark-dot {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #ffd700;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 6px rgba(255, 215, 0, 0.7);
+  cursor: pointer;
+  z-index: 2;
+  transition: transform 0.1s;
+}
+.pb-bookmark-dot:active { transform: translate(-50%, -50%) scale(1.3); }
+/* The 🔖 button revealed by long-pressing the bar; sits just above the track. */
+.pb-bookmark-btn {
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  animation: bookmarkPop 0.18s ease-out;
+}
+@keyframes bookmarkPop {
+  from { opacity: 0; transform: scale(0.5); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ===================== Feature: Comment draft auto-save (评论草稿自动保存) ===================== */
+/* The input field + draft badge share a row; the badge sits at the field's right edge. */
+.cp-input-field-wrap { position: relative; flex: 1; }
+.cp-draft-badge {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  z-index: 3;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  background: #fe2c55;
+  padding: 1px 7px;
+  border-radius: 8px;
+  pointer-events: none;
 }
 </style>

@@ -124,6 +124,57 @@ function fmtCount(n) {
   if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
   return String(n)
 }
+
+// ===================== Feature: Discover daily pick (发现页每日精选) =====================
+// A curated "💎 每日精选" section at the top of Discover. Three picks are chosen
+// deterministically from the loaded feed based on a hash of today's date string,
+// so every user sees the same 3 picks on a given day, and they change each day.
+// Each pick shows the video's cover, an "编辑推荐" badge, and a reason picked
+// deterministically from the reasons pool. Clicking a pick navigates to /feed.
+const PICK_REASONS = ['今日热门', '优质内容', '创意满分', '治愈系', '正能量', '视觉震撼']
+
+// dateHash turns today's date into a small non-negative integer hash. Using the
+// YYYY-MM-DD string keeps it stable for the whole day and changes at midnight.
+function dateHash(dateStr) {
+  let h = 0
+  for (let i = 0; i < dateStr.length; i++) {
+    h = (h * 31 + dateStr.charCodeAt(i)) >>> 0
+  }
+  return h
+}
+
+function todayDateStr() {
+  const d = new Date()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
+// dailyPicks derives the 3 deterministic picks from the loaded feed + today's
+// hash. Returns [] until the feed has loaded so the section hides gracefully.
+const dailyPicks = computed(() => {
+  const pool = allVideos.value
+  if (!pool || pool.length === 0) return []
+  const h = dateHash(todayDateStr())
+  const picks = []
+  const usedIdx = new Set()
+  let idx = h
+  for (let n = 0; n < 3; n++) {
+    // Step through the pool deterministically; wrap around.
+    idx = (idx + n * 7 + 3) % pool.length
+    let attempts = 0
+    while (usedIdx.has(idx) && attempts < pool.length) {
+      idx = (idx + 1) % pool.length
+      attempts++
+    }
+    if (usedIdx.has(idx)) break
+    usedIdx.add(idx)
+    const reason = PICK_REASONS[(h + n * 5) % PICK_REASONS.length]
+    picks.push({ video: pool[idx], reason })
+  }
+  return picks
+})
+
 </script>
 
 <template>
@@ -131,6 +182,32 @@ function fmtCount(n) {
     <van-search v-model="keyword" placeholder="搜索视频、用户、话题" shape="round" show-action @search="doSearch" background="#161616">
       <template #action><span style="color: #fe2c55" @click="doSearch">搜索</span></template>
     </van-search>
+
+    <!-- ===================== Feature: 每日精选 (daily pick) =====================
+         A curated daily section: 3 picks chosen deterministically by date hash,
+         each showing a cover image, an "编辑推荐" badge, and a pick reason.
+         Clicking a pick navigates to /feed. Changes daily. -->
+    <div v-if="dailyPicks.length" class="daily-picks">
+      <div class="dp-head">
+        <span class="dp-title">💎 每日精选</span>
+        <span class="dp-sub">{{ todayDateStr() }} · 每日更新</span>
+      </div>
+      <div class="dp-row">
+        <div
+          v-for="(p, i) in dailyPicks"
+          :key="i"
+          class="dp-item"
+          @click="router.push('/feed')"
+        >
+          <div class="dp-cover-wrap">
+            <img class="dp-cover" :src="p.video.cover_url || 'https://via.placeholder.com/120x160'" />
+            <span class="dp-badge">编辑推荐</span>
+          </div>
+          <div class="dp-reason">{{ p.reason }}</div>
+          <div class="dp-name van-ellipsis">{{ p.video.title }}</div>
+        </div>
+      </div>
+    </div>
 
     <!-- ===================== Feature: 热门话题 rotating banner ===================== -->
     <div class="rotating-banner" @click="tapBanner">
@@ -215,6 +292,42 @@ function fmtCount(n) {
 <style scoped>
 .discover-page { height: 100vh; overflow-y: auto; background: #000; }
 .hot-tags { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+
+/* ===================== Feature: 每日精选 (daily pick) ===================== */
+.daily-picks {
+  margin: 8px 12px;
+  background: linear-gradient(135deg, #1a0a14, #161616);
+  border: 1px solid rgba(254, 44, 85, 0.25);
+  border-radius: 14px;
+  padding: 14px 12px 12px;
+}
+.dp-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+.dp-title { color: #fff; font-size: 16px; font-weight: bold; }
+.dp-sub { color: #888; font-size: 11px; }
+.dp-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.dp-item { cursor: pointer; }
+.dp-cover-wrap { position: relative; border-radius: 10px; overflow: hidden; }
+.dp-cover { width: 100%; aspect-ratio: 9/16; object-fit: cover; display: block; background: #222; }
+.dp-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  font-size: 9px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(90deg, #fe2c55, #ff6b9d);
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.dp-reason {
+  margin-top: 6px;
+  color: #fe2c55;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+.dp-name { color: rgba(255,255,255,0.85); font-size: 11px; margin-top: 2px; text-align: center; }
 
 /* ===================== Feature: 热门话题 rotating banner ===================== */
 .rotating-banner {

@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showSuccessToast, showDialog } from 'vant'
-import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts, startPK, getActivePK, scorePK, guardHost, getGuardStatus, dropRedPacket, getActiveRedPacket, grabRedPacket, getContributors, contribute, banUser, getSuggestFollows, getUser, toggleFollow } from '../api'
+import { getLiveRoom, likeLive, sendLiveMessage, getLiveGifts, startPK, getActivePK, scorePK, guardHost, getGuardStatus, dropRedPacket, getActiveRedPacket, grabRedPacket, getContributors, contribute, banUser, getSuggestFollows, getUser, toggleFollow, getLiveSchedules } from '../api'
 
 const route = useRoute()
 const router = useRouter()
@@ -111,6 +111,9 @@ onMounted(async () => {
   restoreTheme()
   // Feature: 直播间幸运数字 — load today's lucky points on mount.
   loadLuckyPoints()
+  // Feature: 主播开播提醒 — load the armed state + next schedule on mount.
+  loadReminder()
+  loadSchedules()
   pollTimer = setInterval(pollMessages, 3000)
 })
 
@@ -621,6 +624,66 @@ async function doAnchorFollow() {
     showToast('操作失败')
   }
 }
+
+// ===================== Feature: Anchor schedule reminder (主播开播提醒) =====================
+// A "🔔 开播提醒" button in the anchor intro card lets the user opt in to a
+// reminder for the host's next scheduled live. The reminder is stored in
+// localStorage keyed by host_id. When already set, the button shows an "已设置"
+// state with a cancel option. The next scheduled time (from live_schedules) is
+// shown as "下次直播: X月X日" below the button.
+const REMINDER_PREFIX = 'dy_live_reminder_'
+const reminderSet = ref(false)     // true when a reminder is armed for this host
+const nextSchedule = ref(null)     // the host's next upcoming schedule (if any)
+const schedules = ref([])          // all upcoming schedules
+
+function reminderKey() {
+  return REMINDER_PREFIX + (room.value?.host_id || '')
+}
+
+// loadReminder reads the armed state from localStorage for this room's host.
+function loadReminder() {
+  try {
+    reminderSet.value = localStorage.getItem(reminderKey()) === '1'
+  } catch (e) {
+    reminderSet.value = false
+  }
+}
+
+// loadSchedules fetches upcoming live schedules and resolves the host's next one.
+async function loadSchedules() {
+  try {
+    const data = await getLiveSchedules()
+    schedules.value = data || []
+    const hid = room.value?.host_id
+    nextSchedule.value = hid
+      ? (data || []).find((s) => s.host_id === hid) || null
+      : null
+  } catch (e) {
+    schedules.value = []
+    nextSchedule.value = null
+  }
+}
+
+// toggleReminder arms or cancels the reminder, persisting to localStorage.
+function toggleReminder() {
+  if (reminderSet.value) {
+    try { localStorage.removeItem(reminderKey()) } catch (e) {}
+    reminderSet.value = false
+    showToast('已取消开播提醒')
+  } else {
+    try { localStorage.setItem(reminderKey(), '1') } catch (e) {}
+    reminderSet.value = true
+    showSuccessToast('已开启开播提醒')
+  }
+}
+
+// formatScheduleDate renders "X月X日" from a schedule's scheduled_time.
+function formatScheduleDate(s) {
+  if (!s || !s.scheduled_time) return ''
+  const d = new Date(s.scheduled_time)
+  if (isNaN(d.getTime())) return ''
+  return `${d.getMonth() + 1}月${d.getDate()}日`
+}
 </script>
 
 <template>
@@ -1054,6 +1117,22 @@ async function doAnchorFollow() {
 
           <!-- Action buttons -->
           <div class="ac-actions">
+            <!-- ===================== Feature: 主播开播提醒 (schedule reminder) =====================
+                 Toggles a reminder stored in localStorage keyed by host_id. Shows the
+                 next scheduled live time (from live_schedules) below the button. -->
+            <div class="ac-reminder-block">
+              <van-button
+                round
+                block
+                class="ac-btn"
+                :color="reminderSet ? '#444' : '#fe2c55'"
+                @click="toggleReminder"
+              >{{ reminderSet ? '🔔 已设置提醒' : '🔔 开播提醒' }}</van-button>
+              <div v-if="reminderSet && nextSchedule" class="ac-next-live">
+                下次直播: {{ formatScheduleDate(nextSchedule) }}
+              </div>
+              <div v-else-if="nextSchedule" class="ac-next-live">下次直播: {{ formatScheduleDate(nextSchedule) }}</div>
+            </div>
             <van-button
               round
               block
@@ -1718,6 +1797,14 @@ async function doAnchorFollow() {
 
 /* Action buttons */
 .ac-actions { display: flex; flex-direction: column; gap: 10px; width: 100%; padding: 0 28px; box-sizing: border-box; }
+/* ===================== Feature: 主播开播提醒 (schedule reminder) ===================== */
+.ac-reminder-block { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; }
+.ac-next-live {
+  color: #fe2c55;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+}
 .ac-btn { flex: 1; }
 .ac-btn-outline {
   background: transparent;
