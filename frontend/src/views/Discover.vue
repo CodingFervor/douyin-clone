@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { getFeed, searchVideos, getHotSearch, getHotHashtags, getSuggestFollows, toggleFollow } from '../api'
@@ -14,7 +14,45 @@ const hotList = ref([])
 const tags = ref([])
 const suggestUsers = ref([])
 
+// ===================== Feature: 热门话题 rotating banner =====================
+// A set of hot hashtags that rotate automatically every 3 seconds. The banner
+// shows one hashtag at a time with a slide animation; tapping it searches.
+const bannerHashtags = [
+  { tag: '夏日清凉挑战', text: '🔥 #夏日清凉挑战 一起加入夏日清凉挑战吧！' },
+  { tag: '热门舞蹈', text: '🔥 #热门舞蹈 跟着节奏一起摇摆起来～' },
+  { tag: '美食探店', text: '🔥 #美食探店 发现身边隐藏的美味店铺' },
+  { tag: '旅行日记', text: '🔥 #旅行日记 记录旅途中的美好瞬间' },
+  { tag: '萌宠日常', text: '🔥 #萌宠日常 你家的毛孩子在干嘛呢？' },
+  { tag: 'vlog记录', text: '🔥 #vlog记录 用镜头记录平凡而闪光的每一天' },
+]
+const bannerIndex = ref(0)
+let bannerTimer = null
+const currentBanner = computed(() => bannerHashtags[bannerIndex.value] || bannerHashtags[0])
+
+function startBanner() {
+  stopBanner()
+  bannerTimer = setInterval(() => {
+    bannerIndex.value = (bannerIndex.value + 1) % bannerHashtags.length
+  }, 3000)
+}
+function stopBanner() {
+  if (bannerTimer) { clearInterval(bannerTimer); bannerTimer = null }
+}
+function tapBanner() {
+  searchHot(currentBanner.value.tag)
+}
+// Re-seed the banner from real hashtags once they load (falls back to defaults
+// if the API returns nothing).
+watch(tags, (data) => {
+  if (data && data.length) {
+    bannerHashtags.length = 0
+    data.slice(0, 6).forEach((t) => bannerHashtags.push({ tag: t.name, text: `🔥 #${t.name} ${fmtCount(t.uses)}次使用` }))
+    if (bannerIndex.value >= bannerHashtags.length) bannerIndex.value = 0
+  }
+}, { immediate: false })
+
 onMounted(async () => {
+  startBanner()
   try {
     const data = await getFeed(30)
     allVideos.value = data
@@ -29,6 +67,27 @@ onMounted(async () => {
   getHotHashtags().then((data) => { tags.value = data || [] }).catch(() => {})
   getSuggestFollows().then((data) => { suggestUsers.value = data || [] }).catch(() => {})
 })
+
+onUnmounted(stopBanner)
+
+// ===================== Feature: 排行榜 quick links =====================
+// Three ranking shortcuts that route to existing pages.
+const rankingLinks = [
+  { key: 'hot', label: '热搜榜', icon: '🔥', desc: '实时热搜', to: '/discover' },
+  { key: 'music', label: '音乐榜', icon: '🎵', desc: '热门音乐', to: '/hot-music' },
+  { key: 'fan', label: '贡献榜', icon: '🏅', desc: '粉丝贡献', to: '/fan-club' },
+]
+function goRank(link) {
+  if (link.key === 'hot') {
+    // No dedicated ranking page; jump to the inline hot-search list already
+    // on this page by clearing any active filter and scrolling to it.
+    keyword.value = ''
+    videos.value = allVideos.value
+    showToast('查看下方热搜榜')
+    return
+  }
+  router.push(link.to)
+}
 
 async function doSearch() {
   const kw = keyword.value.trim()
@@ -72,6 +131,31 @@ function fmtCount(n) {
     <van-search v-model="keyword" placeholder="搜索视频、用户、话题" shape="round" show-action @search="doSearch" background="#161616">
       <template #action><span style="color: #fe2c55" @click="doSearch">搜索</span></template>
     </van-search>
+
+    <!-- ===================== Feature: 热门话题 rotating banner ===================== -->
+    <div class="rotating-banner" @click="tapBanner">
+      <transition name="banner-slide" mode="out-in">
+        <span :key="bannerIndex" class="banner-text">{{ currentBanner.text }}</span>
+      </transition>
+      <div class="banner-dots">
+        <span
+          v-for="(b, i) in bannerHashtags"
+          :key="i"
+          class="dot"
+          :class="{ active: i === bannerIndex }"
+        ></span>
+      </div>
+    </div>
+
+    <!-- ===================== Feature: 排行榜 quick links ===================== -->
+    <div class="rank-links">
+      <div v-for="link in rankingLinks" :key="link.key" class="rank-link" @click="goRank(link)">
+        <div class="rl-icon">{{ link.icon }}</div>
+        <div class="rl-label">{{ link.label }}</div>
+        <div class="rl-desc">{{ link.desc }}</div>
+      </div>
+    </div>
+
     <div class="hot-tags">
       <van-tag v-for="t in ['旅行', '美食', '舞蹈', '萌宠', '摄影', 'vlog']" :key="t" round plain color="#fe2c55" size="medium" @click="keyword = t; doSearch()">#{{ t }}</van-tag>
     </div>
@@ -131,6 +215,37 @@ function fmtCount(n) {
 <style scoped>
 .discover-page { height: 100vh; overflow-y: auto; background: #000; }
 .hot-tags { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+
+/* ===================== Feature: 热门话题 rotating banner ===================== */
+.rotating-banner {
+  position: relative; margin: 8px 12px; padding: 14px 16px; border-radius: 12px;
+  background: linear-gradient(135deg, #fe2c55, #ff6b9d); color: #fff;
+  cursor: pointer; overflow: hidden; min-height: 52px;
+  display: flex; align-items: center; box-shadow: 0 4px 14px rgba(254,44,85,0.3);
+}
+.banner-text { font-size: 14px; font-weight: bold; line-height: 20px; flex: 1; }
+.banner-dots { position: absolute; bottom: 6px; right: 14px; display: flex; gap: 4px; }
+.dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.45); transition: all 0.3s; }
+.dot.active { background: #fff; width: 14px; border-radius: 3px; }
+/* slide animation for the rotating banner text */
+.banner-slide-enter-active, .banner-slide-leave-active { transition: all 0.5s ease; }
+.banner-slide-enter-from { opacity: 0; transform: translateX(24px); }
+.banner-slide-leave-to { opacity: 0; transform: translateX(-24px); }
+
+/* ===================== Feature: 排行榜 quick links ===================== */
+.rank-links {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  margin: 0 12px 4px;
+}
+.rank-link {
+  background: #161616; border-radius: 10px; padding: 12px 6px; text-align: center;
+  cursor: pointer; transition: transform 0.15s, background 0.2s; border: 1px solid #1f1f1f;
+}
+.rank-link:active { transform: scale(0.96); }
+.rank-link:hover { background: #1f1f1f; }
+.rl-icon { font-size: 22px; line-height: 26px; }
+.rl-label { color: #fff; font-size: 13px; font-weight: bold; margin-top: 4px; }
+.rl-desc { color: #888; font-size: 10px; margin-top: 2px; }
 .hot-search { background: #161616; margin: 8px 12px; border-radius: 10px; padding: 12px; }
 .hs-head { color: #fff; font-size: 15px; font-weight: bold; margin-bottom: 10px; }
 .hs-item { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
