@@ -64,7 +64,12 @@ onMounted(async () => {
   pollTimer = setInterval(pollMessages, 3000)
 })
 
-onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer)
+  // Clean up dice game timers to avoid leaks when leaving the room.
+  if (diceSpinTimer) clearInterval(diceSpinTimer)
+  if (diceStopTimer) clearTimeout(diceStopTimer)
+})
 
 async function pollMessages() {
   // Lightweight: reserved for real-time chat polling.
@@ -205,6 +210,61 @@ async function doContribute() {
     showToast('请先登录')
     router.push('/login')
   }
+}
+
+// ===================== Feature: 幸运骰子小游戏 (lucky dice mini-game) =====================
+// A pure-frontend dice game in the live room. Rolling animates a spinning dice
+// for ~1.5s then reveals a random value 1-6. We track the last 5 results and
+// the best (highest) roll for the session, with a fun result message per value.
+const showDice = ref(false)
+const diceValue = ref(1)        // currently displayed pip value
+const diceRolling = ref(false)  // spinning state
+const diceHistory = ref([])     // last 5 results (newest last)
+const diceFace = ref('🎲')      // emoji shown while idle/rolling
+let diceSpinTimer = null
+let diceStopTimer = null
+
+// Fun message based on the rolled value.
+function diceMessage(v) {
+  switch (v) {
+    case 6: return '大吉！运气爆棚 🎉'
+    case 5: return '大吉大利 🍗'
+    case 4: return '稳中向好 👍'
+    case 3: return '中规中矩 🙂'
+    case 2: return '差一点点 😅'
+    default: return '再接再厉 💪'
+  }
+}
+
+// Best (highest) roll across the session history.
+const diceBest = computed(() => {
+  if (!diceHistory.value.length) return null
+  return Math.max(...diceHistory.value)
+})
+
+function rollDice() {
+  if (diceRolling.value) return
+  diceRolling.value = true
+  // Rapidly cycle faces + the spinning animation class drives the CSS spin.
+  if (diceSpinTimer) clearInterval(diceSpinTimer)
+  const faces = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅']
+  diceSpinTimer = setInterval(() => {
+    diceFace.value = faces[Math.floor(Math.random() * 6)]
+  }, 90)
+  // Stop after ~1.5s and lock in a random result.
+  if (diceStopTimer) clearTimeout(diceStopTimer)
+  diceStopTimer = setTimeout(() => {
+    clearInterval(diceSpinTimer)
+    diceSpinTimer = null
+    const result = Math.floor(Math.random() * 6) + 1
+    diceValue.value = result
+    diceFace.value = faces[result - 1]
+    diceRolling.value = false
+    // Keep only the last 5 results.
+    diceHistory.value.push(result)
+    if (diceHistory.value.length > 5) diceHistory.value.shift()
+    showToast(diceMessage(result))
+  }, 1500)
 }
 
 // ===================== Feature: Live viewer list (直播间观众列表) =====================
@@ -358,6 +418,9 @@ const tierBreakdown = computed(() => {
       </div>
     </div>
 
+    <!-- ===================== Feature: 幸运骰子小游戏 (lucky dice) entry ===================== -->
+    <div class="dice-entry" @click="showDice = true">🎲 骰子</div>
+
     <!-- Live viewer list entry (直播间观众列表) — shows count + opens popup -->
     <div class="viewer-entry" @click="openViewers">
       👥 观众 {{ fmt(viewerCount()) }}
@@ -506,6 +569,43 @@ const tierBreakdown = computed(() => {
             <van-button size="mini" round color="#fe2c55" @click="showSuccessToast('已加入购物车')">抢购</van-button>
           </div>
         </div>
+      </div>
+    </van-popup>
+
+    <!-- ===================== Feature: 幸运骰子小游戏 (lucky dice) popup ===================== -->
+    <van-popup v-model:show="showDice" position="bottom" round :style="{ height: '46%' }">
+      <div class="dice-panel">
+        <div class="dice-head">🎲 幸运骰子</div>
+        <div class="dice-sub">纯前端小游戏 · 摇一摇试试手气</div>
+
+        <!-- Animated dice -->
+        <div class="dice-stage">
+          <div class="dice-cube" :class="{ rolling: diceRolling }">{{ diceFace }}</div>
+        </div>
+
+        <!-- Current result + message -->
+        <div class="dice-result">
+          <span v-if="!diceRolling" class="dr-val">{{ diceValue }} 点</span>
+          <span v-else class="dr-val">摇骰中…</span>
+        </div>
+        <div v-if="!diceRolling && diceHistory.length" class="dice-msg">{{ diceMessage(diceValue) }}</div>
+
+        <!-- Roll history (last 5) -->
+        <div v-if="diceHistory.length" class="dice-history">
+          <span class="dh-label">最近：</span>
+          <span v-for="(h, i) in diceHistory" :key="i" class="dh-num">{{ h }}</span>
+        </div>
+        <!-- Best roll -->
+        <div v-if="diceBest" class="dice-best">手气最佳：{{ diceBest }} 点</div>
+
+        <van-button
+          block
+          round
+          color="#fe2c55"
+          :loading="diceRolling"
+          class="dice-roll-btn"
+          @click="rollDice"
+        >{{ diceRolling ? '摇骰中…' : '摇骰子' }}</van-button>
       </div>
     </van-popup>
 
@@ -708,4 +808,69 @@ const tierBreakdown = computed(() => {
 .fan-badge.tier-new { background: #34c759; }
 /* else: 灰色 路人 */
 .fan-badge.tier-passer { background: #888; }
+
+/* ===================== Feature: 幸运骰子小游戏 (lucky dice) ===================== */
+/* Entry button — sits below the contribution board entry, themed red. */
+.dice-entry {
+  position: absolute;
+  top: 224px;
+  right: 16px;
+  z-index: 10;
+  background: rgba(254, 44, 85, 0.85);
+  color: #fff;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(254, 44, 85, 0.4);
+}
+.dice-entry:active { transform: scale(0.95); background: rgba(254, 44, 85, 1); }
+/* Popup panel */
+.dice-panel {
+  background: #161616;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 16px;
+  gap: 6px;
+}
+.dice-head { color: #fff; font-size: 17px; font-weight: bold; }
+.dice-sub { color: #888; font-size: 12px; margin-bottom: 8px; }
+/* Dice stage + animated emoji cube */
+.dice-stage { perspective: 600px; margin: 6px 0; }
+.dice-cube {
+  font-size: 96px;
+  line-height: 1;
+  color: #fe2c55;
+  filter: drop-shadow(0 0 16px rgba(254, 44, 85, 0.5));
+  transform-style: preserve-3d;
+}
+.dice-cube.rolling { animation: diceSpin 0.35s linear infinite; }
+@keyframes diceSpin {
+  0% { transform: rotateX(0) rotateY(0) scale(1); }
+  50% { transform: rotateX(180deg) rotateY(180deg) scale(1.15); }
+  100% { transform: rotateX(360deg) rotateY(360deg) scale(1); }
+}
+.dice-result { margin-top: 8px; }
+.dr-val { color: #fff; font-size: 20px; font-weight: bold; }
+.dice-msg { color: #ffd700; font-size: 14px; margin-top: 2px; }
+/* Roll history */
+.dice-history { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.dh-label { color: #888; font-size: 12px; }
+.dh-num {
+  color: #fff;
+  font-size: 13px;
+  font-weight: bold;
+  min-width: 24px;
+  height: 24px;
+  line-height: 24px;
+  text-align: center;
+  background: #2a2a2a;
+  border-radius: 6px;
+  padding: 0 6px;
+}
+/* Best roll */
+.dice-best { color: #25f4ee; font-size: 13px; margin-top: 8px; }
+.dice-roll-btn { margin-top: 14px; }
 </style>
