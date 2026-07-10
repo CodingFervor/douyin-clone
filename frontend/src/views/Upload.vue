@@ -26,7 +26,9 @@ const uploading = ref(false)
 const progress = ref(0)
 // Pre-fill the music field when arriving from 音乐工作室 via the `music` query param.
 const initialMusic = route.query.music || '原声'
-const form = ref({ title: '', description: '', video_url: '', cover_url: '', tags: '', music: initialMusic, filter: 'none' })
+// Pre-fill the tags field when arriving from 创作者中心 via the `tags` query param.
+const initialTags = route.query.tags || ''
+const form = ref({ title: '', description: '', video_url: '', cover_url: '', tags: initialTags, music: initialMusic, filter: 'none' })
 
 // ===================== Feature: 视频封面选择 (cover frame picker) =====================
 // After a video is chosen (file or URL), the user can scrub through a small

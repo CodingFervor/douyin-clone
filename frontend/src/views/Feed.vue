@@ -15,6 +15,14 @@ const commentText = ref('')
 const replyText = ref('')
 const replyTo = ref(null) // comment being replied to (null = top-level)
 const currentVideoId = ref(null)
+
+// ---- Feature: Comment emoji reactions (评论表情回应) ----
+// Purely frontend state — reactions reset when the comment popup closes.
+// commentReactions: { [commentId]: { [emoji]: count } }
+// userReactions:    { [commentId]: emoji | null } (which emoji the current user picked)
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '🔥', '👏']
+const commentReactions = ref({})
+const userReactions = ref({})
 const dragging = ref(false)
 const startY = ref(0)
 // Video progress (时长进度条)
@@ -441,6 +449,13 @@ async function openComments(v) {
   // Recompute the pinned comment for the now-open video's comment list.
   recomputePinned()
 }
+// Reset emoji reactions when the comment popup closes (frontend-only state).
+watch(showComment, (open) => {
+  if (!open) {
+    commentReactions.value = {}
+    userReactions.value = {}
+  }
+})
 // Start composing a reply to a specific comment (or cancel if already replying).
 function startReply(c) {
   if (replyTo.value && replyTo.value.id === c.id) {
@@ -504,6 +519,36 @@ async function doCommentLike(c) {
     showToast('请先登录')
     router.push('/login')
   }
+}
+
+// ===================== Feature: Comment emoji reactions (评论表情回应) =====================
+// toggleReaction flips an emoji on/off for a comment. Selecting an already-active
+// emoji removes it; selecting a different one moves the user's reaction (so the
+// previous emoji count drops by 1 and the new one rises by 1). Both maps are
+// mutated reactively via shallow re-assignment so Vue picks up nested changes.
+function toggleReaction(c, emoji) {
+  const cid = c.id
+  if (!commentReactions.value[cid]) commentReactions.value[cid] = {}
+  if (!userReactions.value[cid]) userReactions.value[cid] = null
+  const counts = commentReactions.value[cid]
+  const current = userReactions.value[cid]
+  if (current === emoji) {
+    // Toggle off the active emoji.
+    counts[emoji] = Math.max(0, (counts[emoji] || 0) - 1)
+    if (counts[emoji] === 0) delete counts[emoji]
+    userReactions.value[cid] = null
+  } else {
+    // If the user had a different emoji, decrement it first.
+    if (current) {
+      counts[current] = Math.max(0, (counts[current] || 0) - 1)
+      if (counts[current] === 0) delete counts[current]
+    }
+    counts[emoji] = (counts[emoji] || 0) + 1
+    userReactions.value[cid] = emoji
+  }
+  // Trigger reactivity for nested object mutations.
+  commentReactions.value = { ...commentReactions.value }
+  userReactions.value = { ...userReactions.value }
 }
 
 function fmtCount(n) {
@@ -866,6 +911,20 @@ async function copyLink(v) {
                 />
                 <van-button size="mini" type="primary" color="#fe2c55" @click="sendReply">发送</van-button>
               </div>
+              <!-- Emoji reactions (评论表情回应): a row of 5 emojis, toggle on tap,
+                   counts shown when > 0, the user's pick is highlighted. -->
+              <div class="cp-reactions">
+                <span
+                  v-for="emoji in REACTION_EMOJIS"
+                  :key="emoji"
+                  class="cp-rx-btn"
+                  :class="{ active: userReactions[pinnedComment.id] === emoji }"
+                  @click="toggleReaction(pinnedComment, emoji)"
+                >
+                  <span class="cp-rx-emoji">{{ emoji }}</span>
+                  <span v-if="commentReactions[pinnedComment.id] && commentReactions[pinnedComment.id][emoji]" class="cp-rx-count">{{ commentReactions[pinnedComment.id][emoji] }}</span>
+                </span>
+              </div>
             </div>
             <div class="cp-like" :class="{ active: pinnedComment.liked }" @click="doCommentLike(pinnedComment)">
               <van-icon :name="pinnedComment.liked ? 'like' : 'like-o'" size="16" :color="pinnedComment.liked ? '#fe2c55' : '#999'" /><span>{{ pinnedComment.likes }}</span>
@@ -896,6 +955,20 @@ async function copyLink(v) {
                   @keyup.enter="sendReply"
                 />
                 <van-button size="mini" type="primary" color="#fe2c55" @click="sendReply">发送</van-button>
+              </div>
+              <!-- Emoji reactions (评论表情回应): a row of 5 emojis, toggle on tap,
+                   counts shown when > 0, the user's pick is highlighted. -->
+              <div class="cp-reactions">
+                <span
+                  v-for="emoji in REACTION_EMOJIS"
+                  :key="emoji"
+                  class="cp-rx-btn"
+                  :class="{ active: userReactions[c.id] === emoji }"
+                  @click="toggleReaction(c, emoji)"
+                >
+                  <span class="cp-rx-emoji">{{ emoji }}</span>
+                  <span v-if="commentReactions[c.id] && commentReactions[c.id][emoji]" class="cp-rx-count">{{ commentReactions[c.id][emoji] }}</span>
+                </span>
               </div>
             </div>
             <div class="cp-like" :class="{ active: c.liked }" @click="doCommentLike(c)">
@@ -1076,6 +1149,28 @@ async function copyLink(v) {
 .cp-empty { text-align: center; color: #666; padding: 40px; }
 .cp-input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #222; }
 .cp-field { background: #222; border-radius: 18px; }
+
+/* ===================== Feature: Comment emoji reactions (评论表情回应) ===================== */
+/* A horizontal row of emoji buttons below each comment. The active emoji is
+   highlighted with the theme color; counts appear when greater than 0. */
+.cp-reactions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cp-rx-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  background: #222;
+  border: 1px solid #2a2a2a;
+  border-radius: 14px;
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.cp-rx-btn:active { background: #2c2c2c; }
+.cp-rx-btn.active { background: rgba(254,44,85,0.18); border-color: #fe2c55; }
+.cp-rx-emoji { line-height: 1; }
+.cp-rx-count { color: #fe2c55; font-size: 11px; font-weight: bold; }
 
 /* ===================== Feature 1: @mention styles ===================== */
 /* Highlighted @username inside rendered comments */
