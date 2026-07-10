@@ -3,8 +3,36 @@ import { ref, computed, onMounted, onActivated, onUnmounted, nextTick, watch } f
 import { useRouter } from 'vue-router'
 import { showToast, showSuccessToast, showDialog } from 'vant'
 import { getFeed, getRecommendFeed, getFollowingFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment, reportVideo, dismissVideo, getSuggestFollows } from '../api'
+import { playLike, playUnlike, playComment, playFollow } from '../utils/sound'
 
 const router = useRouter()
+
+// ===================== Feature: Sound effects toggle (操作音效反馈) =====================
+// A 🔊/🔇 button in the top bar controls whether UI interaction sounds play.
+// The preference persists in localStorage 'dy_sound'; default ON.
+const SOUND_KEY = 'dy_sound'
+const soundOn = ref(true)
+function loadSoundPref() {
+  try {
+    const v = localStorage.getItem(SOUND_KEY)
+    // Treat explicit '0' as off; anything else (including unset) as on.
+    soundOn.value = v !== '0'
+  } catch (e) {
+    soundOn.value = true
+  }
+}
+function toggleSound() {
+  soundOn.value = !soundOn.value
+  try {
+    localStorage.setItem(SOUND_KEY, soundOn.value ? '1' : '0')
+  } catch (e) {
+    // localStorage may be unavailable — ignore.
+  }
+}
+// playSound wraps each effect so it only fires when the toggle is on.
+function playSound(fn) {
+  if (soundOn.value) fn()
+}
 const videos = ref([])
 const index = ref(0)
 const loading = ref(true)
@@ -280,6 +308,8 @@ watch(activeTab, (tab) => {
 onMounted(() => startFollowCheck())
 // Show the one-time swipe-up guide for new users once the feed mounts.
 onMounted(() => showSwipeGuide())
+// Restore the user's sound-effects preference on mount.
+onMounted(() => loadSoundPref())
 
 onUnmounted(() => {
   stopFollowCheck()
@@ -412,6 +442,8 @@ async function doLike(v) {
     const res = await toggleLike(v.id)
     v.liked = res.liked
     v.likes = res.likes
+    // Feature: 操作音效反馈 — ascending on like, descending on unlike.
+    playSound(res.liked ? playLike : playUnlike)
   } catch (e) {
     showToast('请先登录')
     router.push('/login')
@@ -430,6 +462,8 @@ async function doFollow(v) {
   try {
     const res = await toggleFollow(v.author_id)
     v.followed = res.following
+    // Feature: 操作音效反馈 — ascending three-tone on follow.
+    if (res.following) playSound(playFollow)
   } catch (e) {
     showToast('请先登录')
     router.push('/login')
@@ -474,6 +508,8 @@ async function sendComment() {
     const v = videos.value[index.value]
     if (v) v.comments_count++
     recomputePinned()
+    // Feature: 操作音效反馈 — single tone when a comment is sent.
+    playSound(playComment)
   } catch (e) {
     showToast('请先登录')
   }
@@ -764,6 +800,8 @@ async function copyLink(v) {
       </span>
       <span class="sep">|</span>
       <span :class="{ active: activeTab === 'recommend' }" @click="activeTab = 'recommend'">推荐</span>
+      <!-- Feature: 操作音效反馈 — sound toggle, persisted in localStorage 'dy_sound'. -->
+      <span class="sound-btn" @click="toggleSound">{{ soundOn ? '🔊' : '🔇' }}</span>
       <van-icon name="search" class="search-btn" size="22" @click="router.push('/discover')" />
     </div>
 
@@ -1069,6 +1107,15 @@ async function copyLink(v) {
 .top-tabs span.active { color: #fff; font-weight: bold; }
 .top-tabs .sep { color: rgba(255,255,255,0.3); }
 .search-btn { position: absolute; right: 16px; color: #fff; }
+/* Feature: 操作音效反馈 — sound toggle sits just left of the search icon. */
+.sound-btn {
+  position: absolute;
+  right: 52px;
+  font-size: 20px;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+}
 .video-stack { height: 100%; position: relative; }
 .video-slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transition: transform 0.35s ease; }
 .feed-video { width: 100%; height: 100%; object-fit: cover; background: #000; }

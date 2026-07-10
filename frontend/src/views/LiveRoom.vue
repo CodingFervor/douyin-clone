@@ -42,6 +42,45 @@ const highlights = ref([
 ])
 const showHighlights = ref(false)
 
+// ===================== Feature: Live room theme (直播间主题装扮) =====================
+// A color picker that re-tints the room's background and accent UI. Each theme
+// defines a background color and a complementary accent; the selection persists
+// in localStorage 'dy_live_theme' and is restored on mount.
+const THEMES = [
+  { key: 'default', label: '默认', bg: '#000000', accent: '#fe2c55' },
+  { key: 'warm', label: '暖橙', bg: '#1a0a00', accent: '#ff9500' },
+  { key: 'blue', label: '深蓝', bg: '#001a1a', accent: '#25f4ee' },
+  { key: 'pink', label: '樱粉', bg: '#1a0010', accent: '#ff5c8a' },
+  { key: 'green', label: '森绿', bg: '#001a00', accent: '#34c759' },
+  { key: 'purple', label: '暗紫', bg: '#0a001a', accent: '#9c27b0' },
+]
+const THEME_KEY = 'dy_live_theme'
+const themeBg = ref('#000000')
+const themeAccent = ref('#fe2c55')
+const showTheme = ref(false)
+// Apply a theme object: set reactive colors + persist the key.
+function applyTheme(t) {
+  themeBg.value = t.bg
+  themeAccent.value = t.accent
+  try { localStorage.setItem(THEME_KEY, t.key) } catch (e) {}
+  showTheme.value = false
+}
+// Restore the saved theme from localStorage; defaults to 默认.
+function restoreTheme() {
+  try {
+    const key = localStorage.getItem(THEME_KEY)
+    if (key) {
+      const found = THEMES.find((t) => t.key === key)
+      if (found) {
+        themeBg.value = found.bg
+        themeAccent.value = found.accent
+      }
+    }
+  } catch (e) {
+    // localStorage unavailable — keep defaults.
+  }
+}
+
 onMounted(async () => {
   try {
     const res = await getLiveRoom(route.params.id)
@@ -61,6 +100,8 @@ onMounted(async () => {
   getGuardStatus(route.params.id).then((d) => { guardCount.value = d.count || 0; isGuarding.value = !!d.guarding }).catch(() => {})
   getActiveRedPacket(route.params.id).then((d) => { if (d) { redPacket.value = d; startRain() } }).catch(() => {})
   loadContributors()
+  // Feature: 直播间主题装扮 — restore the saved theme on mount.
+  restoreTheme()
   pollTimer = setInterval(pollMessages, 3000)
 })
 
@@ -356,7 +397,7 @@ const tierBreakdown = computed(() => {
   <div class="room-page" v-if="loading">
     <div class="loading-center"><van-loading color="#fe2c55" /></div>
   </div>
-  <div class="room-page" v-else-if="room">
+  <div class="room-page" v-else-if="room" :style="{ background: themeBg }">
     <!-- HLS video player -->
     <video class="live-video" :src="room.stream_url" autoplay muted loop playsinline></video>
 
@@ -364,13 +405,13 @@ const tierBreakdown = computed(() => {
     <div class="top-bar">
       <van-icon name="arrow-left" size="22" color="#fff" @click="router.back()" />
       <div class="host-info">
-        <img class="host-avatar" :src="room.host_avatar" />
+        <img class="host-avatar" :style="{ borderColor: themeAccent }" :src="room.host_avatar" />
         <div>
           <div class="host-name">{{ room.host_name }}</div>
           <div class="host-viewers">{{ fmt(room.viewers) }}观看</div>
         </div>
       </div>
-      <van-button size="mini" round color="#fe2c55" @click="showToast('关注成功')">+ 关注</van-button>
+      <van-button size="mini" round :color="themeAccent" @click="showToast('关注成功')">+ 关注</van-button>
       <van-button size="mini" round :color="isGuarding ? '#9c27b0' : '#333'" @click="doGuard">{{ isGuarding ? '已守护' : '守护' }}</van-button>
     </div>
 
@@ -421,6 +462,32 @@ const tierBreakdown = computed(() => {
     <!-- ===================== Feature: 幸运骰子小游戏 (lucky dice) entry ===================== -->
     <div class="dice-entry" @click="showDice = true">🎲 骰子</div>
 
+    <!-- ===================== Feature: 直播间主题装扮 (theme picker) ===================== -->
+    <div class="theme-entry" @click="showTheme = true">
+      <span class="theme-swatch" :style="{ background: themeAccent }"></span>
+      🎨 主题
+    </div>
+    <van-popup v-model:show="showTheme" position="bottom" round>
+      <div class="theme-panel">
+        <div class="tp-head">🎨 主题装扮</div>
+        <div class="tp-sub">选择直播间主题配色</div>
+        <div class="tp-grid">
+          <div
+            v-for="t in THEMES"
+            :key="t.key"
+            class="tp-item"
+            :class="{ active: themeBg === t.bg }"
+            @click="applyTheme(t)"
+          >
+            <span class="tp-swatch" :style="{ background: t.bg }">
+              <span class="tp-accent-dot" :style="{ background: t.accent }"></span>
+            </span>
+            <span class="tp-label">{{ t.label }}</span>
+          </div>
+        </div>
+      </div>
+    </van-popup>
+
     <!-- Live viewer list entry (直播间观众列表) — shows count + opens popup -->
     <div class="viewer-entry" @click="openViewers">
       👥 观众 {{ fmt(viewerCount()) }}
@@ -462,7 +529,7 @@ const tierBreakdown = computed(() => {
           </span>
           <span class="cp-amount">{{ c.amount }}</span>
         </div>
-        <van-button block round color="#fe2c55" style="margin-top: 16px" @click="doContribute">为TA打榜 +10</van-button>
+        <van-button block round :color="themeAccent" style="margin-top: 16px" @click="doContribute">为TA打榜 +10</van-button>
       </div>
     </van-popup>
 
@@ -512,7 +579,7 @@ const tierBreakdown = computed(() => {
     <!-- Right action rail -->
     <div class="action-rail">
       <div class="action-item" @click="doLike">
-        <van-icon name="like" color="#fe2c55" size="32" />
+        <van-icon name="like" :color="themeAccent" size="32" />
         <span>{{ fmt(likeCount) }}</span>
       </div>
       <div class="action-item" @click="showGifts = true">
@@ -540,7 +607,7 @@ const tierBreakdown = computed(() => {
     <div class="bottom-bar">
       <div class="chat-input">
         <input v-model="msgText" placeholder="说点什么..." @keyup.enter="sendMessage" />
-        <van-icon name="smile-comment-o" color="#fe2c55" size="22" @click="sendMessage" />
+        <van-icon name="smile-comment-o" :color="themeAccent" size="22" @click="sendMessage" />
       </div>
       <div class="cart-teaser" @click="showCart = true" v-if="products.length">
         <img class="teaser-img" :src="products[0].image" />
@@ -601,7 +668,7 @@ const tierBreakdown = computed(() => {
         <van-button
           block
           round
-          color="#fe2c55"
+          :color="themeAccent"
           :loading="diceRolling"
           class="dice-roll-btn"
           @click="rollDice"
@@ -628,7 +695,7 @@ const tierBreakdown = computed(() => {
 </template>
 
 <style scoped>
-.room-page { height: 100vh; background: #000; position: relative; overflow: hidden; }
+.room-page { height: 100vh; background: #000; position: relative; overflow: hidden; transition: background-color 0.4s ease; }
 .loading-center { display: flex; align-items: center; justify-content: center; height: 100%; }
 .live-video { width: 100%; height: 100%; object-fit: cover; }
 .top-bar { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 10px; padding: 16px; z-index: 10; background: linear-gradient(to bottom, rgba(0,0,0,0.4), transparent); }
@@ -873,4 +940,66 @@ const tierBreakdown = computed(() => {
 /* Best roll */
 .dice-best { color: #25f4ee; font-size: 13px; margin-top: 8px; }
 .dice-roll-btn { margin-top: 14px; }
+
+/* ===================== Feature: 直播间主题装扮 (theme picker) ===================== */
+/* Entry button near the top bar — small accent swatch + label. */
+.theme-entry {
+  position: absolute;
+  top: 252px;
+  right: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0,0,0,0.5);
+  color: #fff;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.theme-entry:active { transform: scale(0.95); }
+.theme-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.6);
+}
+/* Popup panel */
+.theme-panel { background: #161616; padding: 16px; }
+.tp-head { text-align: center; color: #fff; font-size: 16px; font-weight: bold; }
+.tp-sub { text-align: center; color: #888; font-size: 12px; margin: 4px 0 16px; }
+.tp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.tp-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.tp-item:active { background: #1f1f1f; }
+.tp-item.active { border-color: #fe2c55; background: rgba(254,44,85,0.12); }
+.tp-swatch {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.25);
+  box-shadow: inset 0 0 8px rgba(0,0,0,0.4);
+}
+.tp-accent-dot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #161616;
+}
+.tp-label { color: #fff; font-size: 12px; }
 </style>
