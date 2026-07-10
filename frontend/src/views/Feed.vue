@@ -93,6 +93,27 @@ function cycleSpeed() {
   if (v) v.playbackRate = playbackRate.value
 }
 
+// ===================== Feature: Video wallpaper mode (视频壁纸模式) =====================
+// A 🖼️ button in the top tabs enters "wallpaper/screensaver" mode: every UI
+// overlay (top tabs, action rail, bottom info, progress bar, quality/speed
+// toggles) is hidden via v-if, so the video plays fullscreen with no controls
+// and loops continuously. Only a small "退出" button remains in the top-right
+// corner to return to normal mode.
+const wallpaperMode = ref(false)
+function enterWallpaper() {
+  wallpaperMode.value = true
+  // Ensure the active video keeps looping (it already does by default) and
+  // resumes if it was paused, so the wallpaper always animates.
+  nextTick(() => {
+    const vids = document.querySelectorAll('.feed-video')
+    const v = vids[index.value]
+    if (v) { v.loop = true; v.play().catch(() => {}) }
+  })
+}
+function exitWallpaper() {
+  wallpaperMode.value = false
+}
+
 // ---- Feature 3: Expandable caption (视频文案展示) ----
 // Per-video expand state for long descriptions, keyed by video id. When a
 // description is collapsed (-webkit-line-clamp: 2) we show an "展开" toggle;
@@ -890,8 +911,12 @@ async function copyLink(v) {
 
 <template>
   <div class="feed-page" @touchstart="onTouchStart" @touchend="onTouchEnd">
-    <!-- Top tabs -->
-    <div class="top-tabs">
+    <!-- Feature: 视频壁纸模式 — the only UI shown in wallpaper mode is a small
+         "退出" button in the top-right corner; everything else is hidden. -->
+    <div v-if="wallpaperMode" class="wallpaper-exit" @click="exitWallpaper">退出</div>
+
+    <!-- Top tabs — hidden while wallpaper mode is active -->
+    <div class="top-tabs" v-if="!wallpaperMode">
       <span class="tab-follow" :class="{ active: activeTab === 'follow' }" @click="activeTab = 'follow'">
         关注
         <!-- Feature 2: red dot badge shown when the following feed has new videos -->
@@ -901,6 +926,8 @@ async function copyLink(v) {
       <span :class="{ active: activeTab === 'recommend' }" @click="activeTab = 'recommend'">推荐</span>
       <!-- Feature: 操作音效反馈 — sound toggle, persisted in localStorage 'dy_sound'. -->
       <span class="sound-btn" @click="toggleSound">{{ soundOn ? '🔊' : '🔇' }}</span>
+      <!-- Feature: 视频壁纸模式 — 🖼️ button enters fullscreen wallpaper/screensaver mode. -->
+      <span class="wallpaper-btn" @click="enterWallpaper">🖼️</span>
       <van-icon name="search" class="search-btn" size="22" @click="router.push('/discover')" />
     </div>
 
@@ -969,21 +996,21 @@ async function copyLink(v) {
           >❤</div>
         </template>
         <!-- Feature 2: Quality switch (清晰度切换) — top-right corner -->
-        <div v-if="i === index" class="quality-toggle" @click.stop="toggleQuality">
+        <div v-if="i === index && !wallpaperMode" class="quality-toggle" @click.stop="toggleQuality">
           {{ quality === 'hd' ? '高清' : '标清' }}
         </div>
         <!-- HD badge shown only while 高清 is selected -->
-        <div v-if="i === index && quality === 'hd'" class="hd-badge">HD</div>
+        <div v-if="i === index && quality === 'hd' && !wallpaperMode" class="hd-badge">HD</div>
         <!-- Feature 4: Playback speed toggle (视频慢放/倍速) — cycles 0.5/1.0/1.5/2.0 -->
-        <div v-if="i === index" class="speed-toggle" @click.stop="cycleSpeed">
+        <div v-if="i === index && !wallpaperMode" class="speed-toggle" @click.stop="cycleSpeed">
           {{ playbackRate }}x
         </div>
         <!-- Floating speed badge — only shown when not at normal speed -->
-        <div v-if="i === index && playbackRate !== 1.0" class="speed-badge">
+        <div v-if="i === index && playbackRate !== 1.0 && !wallpaperMode" class="speed-badge">
           {{ playbackRate }}x
         </div>
         <!-- Right action rail -->
-        <div class="action-rail">
+        <div v-if="!wallpaperMode" class="action-rail">
           <div class="avatar-wrap" @click="router.push('/user/' + v.author_id)">
             <!-- ===================== Feature 2: Mood ring (心情光环) =====================
                  A rotating conic-gradient ring around the avatar. The gradient lives on a
@@ -1018,11 +1045,11 @@ async function copyLink(v) {
         </div>
         <!-- Bottom info -->
         <!-- Video progress bar (only for the active slide) -->
-        <div v-if="i === index" class="progress-bar">
+        <div v-if="i === index && !wallpaperMode" class="progress-bar">
           <div class="pb-track"><div class="pb-fill" :style="{ width: progress + '%' }"></div></div>
           <span class="pb-time">{{ currentTime }} / {{ duration }}</span>
         </div>
-        <div class="bottom-info">
+        <div v-if="!wallpaperMode" class="bottom-info">
           <div class="author">@{{ v.author_name }}</div>
           <div class="title">{{ v.title }}</div>
           <!-- Feature 3: Expandable caption (视频文案展示) — clamp to 2 lines
@@ -1256,6 +1283,33 @@ async function copyLink(v) {
   user-select: none;
   line-height: 1;
 }
+/* Feature: 视频壁纸模式 — 🖼️ button sits just left of the sound toggle. */
+.wallpaper-btn {
+  position: absolute;
+  right: 88px;
+  font-size: 20px;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+}
+.wallpaper-btn:active { opacity: 0.7; }
+/* The small "退出" button shown only in wallpaper mode (top-right corner). */
+.wallpaper-exit {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 50;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 16px;
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+  user-select: none;
+}
+.wallpaper-exit:active { background: rgba(254, 44, 85, 0.7); }
 .video-stack { height: 100%; position: relative; }
 .video-slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transition: transform 0.35s ease; }
 .feed-video { width: 100%; height: 100%; object-fit: cover; background: #000; }

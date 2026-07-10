@@ -21,6 +21,13 @@ let pollTimer = null
 const gifts = ref([])
 const showGifts = ref(false)
 const flyingGifts = ref([])
+// ===================== Feature: Full-screen mega gift effect (全屏礼物特效) =====================
+// High-value gifts (price >= 100, e.g. 跑车/火箭) trigger a full-screen
+// animation: a golden flash, a large emoji flying diagonally across the screen,
+// and an announcement banner at the top center with a gold gradient. Each entry
+// is auto-removed after the ~3s animation completes.
+const giftEffects = ref([]) // active mega effects [{id, icon, name, username, is_mega}]
+let giftEffectSeq = 0
 // PK battle
 const pk = ref(null)
 // Fan guard
@@ -154,13 +161,27 @@ async function doBan(m) {
   }
 }
 
-// Send a gift: plays a flying animation + posts a system-style danmaku.
+// Send a gift: high-value gifts (price >= 100) trigger a full-screen mega
+// effect; normal gifts keep the existing flying-heart style animation. Both
+// echo a notice into the chat.
 function sendGift(g) {
   const id = Date.now() + Math.random()
-  flyingGifts.value.push({ id, icon: g.icon, name: g.name })
-  setTimeout(() => {
-    flyingGifts.value = flyingGifts.value.filter((f) => f.id !== id)
-  }, 2500)
+  const isMega = (g.price || 0) >= 100
+  if (isMega) {
+    // Full-screen mega gift effect (全屏礼物特效).
+    const eid = ++giftEffectSeq
+    giftEffects.value.push({ id: eid, icon: g.icon, name: g.name, username: '我', is_mega: true })
+    // Auto-remove after the ~3s animation completes.
+    setTimeout(() => {
+      giftEffects.value = giftEffects.value.filter((f) => f.id !== eid)
+    }, 3000)
+  } else {
+    // Normal gift — keep the existing flying animation.
+    flyingGifts.value.push({ id, icon: g.icon, name: g.name })
+    setTimeout(() => {
+      flyingGifts.value = flyingGifts.value.filter((f) => f.id !== id)
+    }, 2500)
+  }
   // Echo a notice into the chat.
   messages.value.push({ id, username: '我', content: `送出 ${g.icon} ${g.name}`, is_gift: true })
   nextTick(scrollMsgs)
@@ -661,6 +682,25 @@ async function doAnchorFollow() {
       </div>
     </div>
 
+    <!-- ===================== Feature: Full-screen mega gift effect (全屏礼物特效) =====================
+         Triggered by high-value gifts (price >= 100). Each effect renders:
+         - a golden flash overlay (0.5s) at the start,
+         - a large gift emoji flying diagonally across the screen (~3s),
+         - an announcement banner at top center with a gold gradient.
+         Auto-removed after the animation completes. -->
+    <div class="mega-gift-layer">
+      <template v-for="fx in giftEffects" :key="fx.id">
+        <!-- Golden flash overlay — quick 0.5s burst when the effect starts. -->
+        <div class="mega-flash"></div>
+        <!-- Large gift emoji flying diagonally across the screen. -->
+        <div class="mega-fly">{{ fx.icon }}</div>
+        <!-- Announcement banner at top center. -->
+        <div class="mega-banner">
+          <span class="mb-user">{{ fx.username }}</span> 送出了 <span class="mb-name">{{ fx.name }}</span><span class="mb-icon">{{ fx.icon }}</span>
+        </div>
+      </template>
+    </div>
+
     <!-- Bottom: chat input + product teaser (小黄车入口) -->
     <div class="bottom-bar">
       <div class="chat-input">
@@ -954,6 +994,71 @@ async function doAnchorFollow() {
 .flying-gift { animation: flyGift 2.5s ease-out forwards; }
 .fg-icon { font-size: 64px; filter: drop-shadow(0 0 12px rgba(255, 215, 0, 0.8)); }
 @keyframes flyGift { 0% { transform: translateY(60px) scale(0.4); opacity: 0; } 25% { transform: translateY(0) scale(1.4); opacity: 1; } 80% { transform: translateY(-20px) scale(1.2); opacity: 1; } 100% { transform: translateY(-80px) scale(1); opacity: 0; } }
+
+/* ===================== Feature: Full-screen mega gift effect (全屏礼物特效) ===================== */
+/* Layer covering the whole room; holds the flash, flying emoji, and banner.
+   High z-index so it renders above all other overlays. */
+.mega-gift-layer { position: absolute; inset: 0; z-index: 40; pointer-events: none; }
+/* Golden flash overlay — a 0.5s burst that fills the screen then fades. */
+.mega-flash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(255, 215, 0, 0.85) 0%, rgba(255, 215, 0, 0.3) 60%, rgba(255, 215, 0, 0) 100%);
+  animation: megaFlash 0.5s ease-out forwards;
+}
+@keyframes megaFlash {
+  0%   { opacity: 0; }
+  20%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* Large gift emoji flying diagonally (bottom-left -> top-right) over ~3s. */
+.mega-fly {
+  position: absolute;
+  top: 0;
+  left: 0;
+  font-size: 140px;
+  line-height: 1;
+  filter: drop-shadow(0 0 24px rgba(255, 215, 0, 0.9));
+  animation: megaFly 3s ease-in forwards;
+}
+@keyframes megaFly {
+  0%   { transform: translate(-20vw, 90vh) rotate(0deg) scale(0.6); opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translate(90vw, -20vh) rotate(35deg) scale(1.4); opacity: 0; }
+}
+/* Announcement banner at top center — gold gradient text, fades after ~3s. */
+.mega-banner {
+  position: absolute;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 24px;
+  font-size: 18px;
+  font-weight: bold;
+  white-space: nowrap;
+  border-radius: 24px;
+  background: linear-gradient(90deg, rgba(255, 215, 0, 0.25), rgba(255, 180, 0, 0.15));
+  border: 1px solid rgba(255, 215, 0, 0.6);
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+  animation: megaBanner 3s ease-out forwards;
+}
+.mega-banner .mb-user { color: #fff; }
+.mega-banner .mb-name {
+  background: linear-gradient(90deg, #ffd700, #ffae00);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: #ffd700;
+  margin: 0 4px;
+}
+.mega-banner .mb-icon { margin-left: 4px; }
+@keyframes megaBanner {
+  0%   { opacity: 0; transform: translate(-50%, -20px) scale(0.8); }
+  15%  { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  80%  { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -20px) scale(0.95); }
+}
 .gift-panel { background: #161616; height: 100%; display: flex; flex-direction: column; }
 .gp-head { text-align: center; padding: 14px; color: #fff; font-size: 15px; border-bottom: 1px solid #222; }
 .gp-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 12px; overflow-y: auto; }
