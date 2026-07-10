@@ -84,6 +84,20 @@ const headerStyle = computed(() => ({
 
 <style scoped>
 .city-page { height: 100vh; overflow-y: auto; background: #000; }
+.city-header { padding: 14px 16px; border-bottom: 1px solid #1a1a1a; }
+.weather-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font-size: 13px;
+}
+.weather-icon { font-size: 18px; }
+.weather-text { font-weight: 500; letter-spacing: 0.3px; }
 .loading { text-align: center; padding: 60px; }
 .live-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
 .live-card { background: #111; border-radius: 8px; overflow: hidden; }
