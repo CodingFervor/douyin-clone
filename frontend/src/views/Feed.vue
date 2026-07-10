@@ -161,6 +161,102 @@ function triggerHeart(i, e) {
   if (v && !v.liked) doLike(v)
 }
 
+// ===================== Feature 1: Video stats overlay (视频数据浮层) =====================
+// A long-press (touchstart held > 500ms) or a right-click on the video opens
+// a semi-transparent card centered on the video showing plays/likes/comments/
+// shares/music/tags. It auto-dismisses after 3s or on a tap, and does not fire
+// for a swipe — the page-level onTouchStart handler continues to own swipe
+// detection; the press is cancelled if the finger drifts or lifts early.
+const showStats = ref(false)        // overlay visibility
+const statsIndex = ref(-1)          // slide the overlay is bound to
+let pressTimer = null               // long-press timer armed on touchstart
+let pressStartX = 0                 // touchstart X, to cancel on large move
+let pressStartY = 0                 // touchstart Y, to cancel on large move
+let statsDismissTimer = null        // 3s auto-dismiss timer
+const STATS_MOVE_TOLERANCE = 10     // px; cancel the press if the finger drifts
+
+// The video currently targeted by the overlay (resolved reactively so the
+// template can read its fields). Stays in sync with statsIndex.
+const statsVideo = computed(() => {
+  if (!showStats.value || statsIndex.value < 0) return null
+  return videos.value[statsIndex.value] || null
+})
+
+// armPress starts the 500ms timer that opens the stats overlay. If the finger
+// moves beyond the tolerance or lifts before the timer fires, the press is a
+// no-op (treated as an ordinary tap/swipe instead).
+function armPress(i, e) {
+  cancelPress()
+  const t = (e.touches && e.touches[0]) || e
+  pressStartX = t.clientX
+  pressStartY = t.clientY
+  pressTimer = setTimeout(() => {
+    pressTimer = null
+    openStats(i)
+  }, 500)
+}
+
+// cancelPress clears a pending long-press (e.g. the finger lifted early or
+// drifted). It does not close an already-open overlay.
+function cancelPress() {
+  if (pressTimer) {
+    clearTimeout(pressTimer)
+    pressTimer = null
+  }
+}
+
+// onVideoTouchMove cancels the press when the finger drifts past the tolerance,
+// so a swipe never accidentally triggers the overlay.
+function onVideoTouchMove(e) {
+  if (!pressTimer) return
+  const t = (e.touches && e.touches[0]) || e
+  if (Math.abs(t.clientX - pressStartX) > STATS_MOVE_TOLERANCE ||
+      Math.abs(t.clientY - pressStartY) > STATS_MOVE_TOLERANCE) {
+    cancelPress()
+  }
+}
+
+// openStats binds the overlay to a slide and arms the 3s auto-dismiss timer.
+function openStats(i) {
+  statsIndex.value = i
+  showStats.value = true
+  if (statsDismissTimer) clearTimeout(statsDismissTimer)
+  statsDismissTimer = setTimeout(closeStats, 3000)
+}
+
+// closeStats hides the overlay and clears the dismiss timer.
+function closeStats() {
+  showStats.value = false
+  if (statsDismissTimer) {
+    clearTimeout(statsDismissTimer)
+    statsDismissTimer = null
+  }
+}
+
+// onVideoContextMenu opens the overlay on right-click (desktop) and suppresses
+// the native browser context menu.
+function onVideoContextMenu(i, e) {
+  e.preventDefault()
+  cancelPress()
+  openStats(i)
+}
+
+// ===================== Feature 2: Mood ring indicator (心情光环) =====================
+// The avatar in the action rail is wrapped in a rotating conic-gradient ring
+// whose colors reflect the video's "mood", derived from the like ratio
+// (likes/plays). Returns a class used to pick the gradient palette.
+//   ratio > 0.3   → mood-hot     (warm red/orange) = 热门
+//   0.1–0.3       → mood-popular (cool blue/cyan)  = 受欢迎
+//   < 0.1         → mood-normal  (subtle gray)      = 普通
+function moodClass(v) {
+  if (!v) return 'mood-normal'
+  const plays = v.plays || 0
+  const ratio = plays > 0 ? (v.likes || 0) / plays : 0
+  if (ratio > 0.3) return 'mood-hot'
+  if (ratio >= 0.1) return 'mood-popular'
+  return 'mood-normal'
+}
+
 // ---- Feature 2: Follow feed unread badge (关注Tab红点) ----
 // While on the 推荐 tab, periodically poll the following feed in the
 // background and light up a red dot on the 关注 tab when new videos appear.
@@ -315,6 +411,9 @@ onUnmounted(() => {
   stopFollowCheck()
   if (singleTapTimer) clearTimeout(singleTapTimer)
   if (guideTimer) clearTimeout(guideTimer)
+  // Feature 1: clear any pending long-press / stats-dismiss timers.
+  cancelPress()
+  if (statsDismissTimer) clearTimeout(statsDismissTimer)
 })
 
 async function loadFeed(tab) {
@@ -823,7 +922,42 @@ async function copyLink(v) {
           playsinline
           webkit-playsinline
           @click="onVideoTap(i, $event)"
+          @touchstart.passive="armPress(i, $event)"
+          @touchmove.passive="onVideoTouchMove"
+          @touchend.passive="cancelPress"
+          @touchcancel="cancelPress"
+          @contextmenu="onVideoContextMenu(i, $event)"
         ></video>
+        <!-- ===================== Feature 1: Video stats overlay (视频数据浮层) =====================
+             Shown for the active slide on long-press / right-click. A tap anywhere on
+             it dismisses it (the whole card is clickable). Auto-dismisses after 3s. -->
+        <div
+          v-if="i === index && showStats && statsIndex === i && statsVideo"
+          class="stats-overlay"
+          @click.stop="closeStats"
+          @touchstart.stop.prevent="closeStats"
+        >
+          <div class="stats-card">
+            <div class="stats-card-title">视频数据</div>
+            <div class="stats-grid">
+              <div class="stats-cell"><span class="stats-val">{{ fmtCount(statsVideo.plays) }}</span><span class="stats-lbl">播放</span></div>
+              <div class="stats-cell"><span class="stats-val">{{ fmtCount(statsVideo.likes) }}</span><span class="stats-lbl">点赞</span></div>
+              <div class="stats-cell"><span class="stats-val">{{ fmtCount(statsVideo.comments_count) }}</span><span class="stats-lbl">评论</span></div>
+              <div class="stats-cell"><span class="stats-val">{{ fmtCount(statsVideo.shares) }}</span><span class="stats-lbl">分享</span></div>
+            </div>
+            <div class="stats-row">
+              <span class="stats-row-lbl">🎵 音乐</span>
+              <span class="stats-row-val van-ellipsis">{{ statsVideo.music || '原声' }}</span>
+            </div>
+            <div v-if="(statsVideo.tags || '').split(',').filter(Boolean).length" class="stats-row">
+              <span class="stats-row-lbl"># 标签</span>
+              <span class="stats-tags">
+                <span v-for="t in statsVideo.tags.split(',').filter(Boolean)" :key="t" class="stats-tag">#{{ t }}</span>
+              </span>
+            </div>
+            <div class="stats-hint">轻点关闭</div>
+          </div>
+        </div>
         <!-- Feature 1: Double-tap heart burst overlay — hearts render on top
              of the active slide and animate (scale + fade) via CSS. -->
         <template v-if="i === index">
@@ -851,7 +985,13 @@ async function copyLink(v) {
         <!-- Right action rail -->
         <div class="action-rail">
           <div class="avatar-wrap" @click="router.push('/user/' + v.author_id)">
-            <img class="avatar" :src="v.author_avatar || 'https://via.placeholder.com/48'" />
+            <!-- ===================== Feature 2: Mood ring (心情光环) =====================
+                 A rotating conic-gradient ring around the avatar. The gradient lives on a
+                 ::before pseudo-element of .mood-ring so only the ring spins, not the
+                 photo. The palette is chosen by moodClass(v) from the like ratio. -->
+            <div class="mood-ring" :class="moodClass(v)">
+              <img class="avatar" :src="v.author_avatar || 'https://via.placeholder.com/48'" />
+            </div>
             <div v-if="!v.followed" class="follow-plus"><van-icon name="plus" color="#fff" size="12" /></div>
           </div>
           <div class="action-item" @click="doLike(v)">
@@ -1467,4 +1607,165 @@ async function copyLink(v) {
 .pl-meta { display: flex; gap: 12px; color: #666; font-size: 11px; margin-top: 4px; }
 .pl-now-bar { width: 3px; align-self: stretch; background: #fe2c55; border-radius: 2px; margin-left: 4px; }
 .pl-empty { text-align: center; color: #666; padding: 40px; }
+
+/* ===================== Feature 1: Video stats overlay (视频数据浮层) ===================== */
+/* A full-slide dimmed backdrop that centers the dark card and absorbs the
+   dismiss tap. The backdrop covers one slide (absolute), not the whole page. */
+.stats-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 16;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(1px);
+  cursor: pointer;
+  animation: statsFadeIn 0.18s ease-out;
+}
+@keyframes statsFadeIn { from { opacity: 0; } to { opacity: 1; } }
+/* Dark rounded card holding the stats. Width is capped so it reads as a card
+   rather than filling the screen. */
+.stats-card {
+  width: 86%;
+  max-width: 320px;
+  padding: 18px 18px 14px;
+  background: rgba(20, 20, 20, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
+  color: #fff;
+  animation: statsCardIn 0.2s ease-out;
+}
+@keyframes statsCardIn { from { transform: scale(0.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.stats-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  text-align: center;
+  margin-bottom: 14px;
+  letter-spacing: 0.5px;
+}
+/* 2x2 grid of headline counts (plays / likes / comments / shares). */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.stats-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+}
+.stats-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.stats-lbl {
+  margin-top: 4px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+}
+/* Music + tags rows. */
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  min-width: 0;
+}
+.stats-row-lbl {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.stats-row-val {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: #fff;
+}
+.stats-tags {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.stats-tag {
+  font-size: 12px;
+  color: #fff;
+  background: rgba(254, 44, 85, 0.7);
+  padding: 2px 8px;
+  border-radius: 10px;
+  line-height: 16px;
+}
+.stats-hint {
+  margin-top: 12px;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* ===================== Feature 2: Mood ring (心情光环) ===================== */
+/* A rotating conic-gradient ring drawn on .mood-ring::before sits behind a
+   static circular avatar, so only the ring spins (Instagram-stories style).
+   The .mood-ring wrapper is sized to match the original avatar (48px) and
+   positioned relative so the ::before layer can fill it. The palette is chosen
+   by the mood-* modifier classes. */
+.mood-ring {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  padding: 3px; /* gap between the rotating gradient and the photo */
+  background: #000; /* inner gap color between ring and photo */
+}
+/* The gradient ring layer: an inset circular fill that rotates. sits behind
+   the avatar (z-index 0; avatar is z-index 1). */
+.mood-ring::before {
+  content: '';
+  position: absolute;
+  inset: -3px; /* extend past the padding so the ring shows around the photo */
+  border-radius: 50%;
+  z-index: 0;
+  background: conic-gradient(from 0deg, #555, #888, #555, #555);
+}
+/* The avatar sits above the gradient, clipped to a circle smaller than the
+   ring so the gradient shows as a border around it. */
+.mood-ring .avatar {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border: 2px solid #000; /* dark inner edge separating photo from ring */
+  box-sizing: border-box;
+}
+/* 热门 — warm gradient (red/orange), for like ratio > 0.3. */
+.mood-ring.mood-hot::before {
+  background: conic-gradient(from 0deg, #fe2c55, #ff6a00, #ffd200, #fe2c55);
+  animation: moodRingSpin 3s linear infinite;
+}
+/* 受欢迎 — cool gradient (blue/cyan), for ratio 0.1–0.3. */
+.mood-ring.mood-popular::before {
+  background: conic-gradient(from 0deg, #25f4ee, #4d8bff, #6a5cff, #25f4ee);
+  animation: moodRingSpin 3s linear infinite;
+}
+/* 普通 — subtle gray, for ratio < 0.1. Static (no spin) so it reads as muted. */
+.mood-ring.mood-normal::before {
+  background: conic-gradient(from 0deg, #555, #888, #555, #555);
+  animation: none;
+}
+@keyframes moodRingSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 </style>
