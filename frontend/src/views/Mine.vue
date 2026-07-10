@@ -64,6 +64,8 @@ function fmtCount(n) {
       <van-button size="small" round color="#333" @click="router.push('/upload')">发布作品</van-button>
       <van-button size="small" round color="#333" @click="router.push('/dm')">私信</van-button>
       <van-button size="small" round color="#333" @click="router.push('/folders')">收藏夹</van-button>
+      <van-button size="small" round color="#333" @click="router.push('/series')">我的合集</van-button>
+      <van-button size="small" round color="#333" @click="router.push('/fan-club')">粉丝团</van-button>
       <van-button size="small" round color="#333" @click="router.push('/creator-center')">创作者中心</van-button>
       <van-button size="small" round color="#333" @click="router.push('/creator-stats')">数据中心</van-button>
     </div>

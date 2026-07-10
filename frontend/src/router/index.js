@@ -25,6 +25,8 @@ const routes = [
   { path: '/music-studio', name: 'musicStudio', component: () => import('../views/MusicStudio.vue') },
   { path: '/live-dashboard', name: 'liveDashboard', component: () => import('../views/LiveDashboard.vue') },
   { path: '/folders', name: 'folders', component: () => import('../views/Folders.vue'), meta: { auth: true } },
+  { path: '/series', name: 'series', component: () => import('../views/Series.vue'), meta: { auth: true } },
+  { path: '/fan-club', name: 'fanClub', component: () => import('../views/FanClub.vue'), meta: { auth: true } },
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })
