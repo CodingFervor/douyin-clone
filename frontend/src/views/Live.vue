@@ -136,4 +136,5 @@ function rankColor(i) {
 .lc-name { color: #999; font-size: 11px; }
 .lc-city { color: #25f4ee; font-size: 10px; margin-left: auto; }
 .data-btn { color: #fe2c55; font-size: 14px; font-weight: bold; }
+.pk-btn { color: #ffd700; font-size: 14px; font-weight: bold; margin-right: 12px; }
 </style>
