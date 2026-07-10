@@ -120,6 +120,68 @@ function exitWallpaper() {
   wallpaperMode.value = false
 }
 
+// ===================== Feature: Video sleep timer (视频睡眠定时) =====================
+// A 😴 button in the top tabs opens a small popup with options 15分钟/30分钟/
+// 60分钟/关闭. After the chosen duration, every feed video is paused and a
+// toast "定时已到，已暂停播放" is shown. While active, a countdown badge
+// "剩余 N分钟" is rendered next to the 😴 button and updates every minute.
+// Selecting 关闭 (or leaving the page) cancels the pending timer.
+const SLEEP_OPTIONS = [15, 30, 60] // minutes
+const sleepMenu = ref(false)        // options popup visibility
+const sleepActive = ref(false)      // true while a timer is running
+const sleepRemaining = ref(0)       // whole minutes left, shown in the badge
+let sleepTimer = null               // the setTimeout id for the final pause
+let sleepTickTimer = null           // the setInterval that decrements the badge
+
+// pauseAllVideos stops every loaded feed video. Used when the timer fires.
+function pauseAllVideos() {
+  document.querySelectorAll('.feed-video').forEach((v) => v.pause())
+}
+
+// startSleep arms the timer for the given number of minutes: schedules the
+// pause callback, sets up the per-minute countdown tick, and closes the menu.
+function startSleep(minutes) {
+  sleepMenu.value = false
+  clearSleep()
+  sleepActive.value = true
+  sleepRemaining.value = minutes
+  // Decrement the "剩余 N分钟" badge every minute so it stays accurate.
+  sleepTickTimer = setInterval(() => {
+    if (sleepRemaining.value > 0) sleepRemaining.value--
+  }, 60 * 1000)
+  // After the full duration, pause everything and surface a confirmation.
+  sleepTimer = setTimeout(() => {
+    pauseAllVideos()
+    clearSleep()
+    sleepActive.value = false
+    sleepRemaining.value = 0
+    showToast('定时已到，已暂停播放')
+  }, minutes * 60 * 1000)
+  showSuccessToast(`已开启睡眠定时 ${minutes} 分钟`)
+}
+
+// cancelSleep is the 关闭 option: clears the running timer + badge.
+function cancelSleep() {
+  sleepMenu.value = false
+  clearSleep()
+  sleepActive.value = false
+  sleepRemaining.value = 0
+  showToast('已关闭睡眠定时')
+}
+
+// clearSleep tears down both timers without touching the public flags. It is
+// also called from onUnmounted so the timer never outlives the component.
+function clearSleep() {
+  if (sleepTimer) {
+    clearTimeout(sleepTimer)
+    sleepTimer = null
+  }
+  if (sleepTickTimer) {
+    clearInterval(sleepTickTimer)
+    sleepTickTimer = null
+  }
+}
+
 // ---- Feature 3: Expandable caption (视频文案展示) ----
 // Per-video expand state for long descriptions, keyed by video id. When a
 // description is collapsed (-webkit-line-clamp: 2) we show an "展开" toggle;
@@ -505,6 +567,9 @@ onUnmounted(() => {
   // Feature 1: clear any pending long-press / stats-dismiss timers.
   cancelPress()
   if (statsDismissTimer) clearTimeout(statsDismissTimer)
+  // Feature: 视频睡眠定时 — tear down the sleep timer + tick so they don't
+  // fire or leak after the component unmounts.
+  clearSleep()
 })
 
 async function loadFeed(tab) {
@@ -680,6 +745,9 @@ watch(showComment, (open) => {
   if (!open) {
     commentReactions.value = {}
     userReactions.value = {}
+    // Feature: 评论翻译指示 — clear demo translation state when the popup closes.
+    translatedIds.value = new Set()
+    translatingList.value = []
   }
 })
 // Start composing a reply to a specific comment (or cancel if already replying).
@@ -777,6 +845,50 @@ function toggleReaction(c, emoji) {
   // Trigger reactivity for nested object mutations.
   commentReactions.value = { ...commentReactions.value }
   userReactions.value = { ...userReactions.value }
+}
+
+// ===================== Feature: Comment translation indicator (评论翻译指示) =====================
+// A pure-frontend demo translation toggle on each comment. Tapping 🌐翻译 shows a
+// "翻译中..." state for 500ms, then flips to an "已翻译" tag and appends
+// "(translated)" to the rendered text. The Set tracks which comment ids are
+// translated; toggling again removes the state. Translating IDs are held in a
+// separate Set so the loading spinner renders per-comment.
+const translatedIds = ref(new Set())      // comment ids currently showing the translated state
+const translatingIds = ref(new Set())     // comment ids mid-"翻译中..." (500ms)
+// translatingList drives reactivity since Set mutations aren't tracked on their own.
+const translatingList = ref([])
+
+function isTranslating(id) { return translatingList.value.includes(id) }
+function isTranslated(id) { return translatedIds.value.has(id) }
+
+// toggleTranslate flips a comment's translation state. Turning it on fakes a
+// 500ms "翻译中..." delay before marking it translated; turning it off clears it.
+function toggleTranslate(c) {
+  const id = c.id
+  if (isTranslating(id)) return // already mid-translation; ignore re-clicks
+  if (translatedIds.value.has(id)) {
+    // Toggle off: remove from the translated set (and the appended marker).
+    const next = new Set(translatedIds.value)
+    next.delete(id)
+    translatedIds.value = next
+    return
+  }
+  // Turn on: show the loading spinner for 500ms, then mark translated.
+  translatingList.value = [...translatingList.value, id]
+  setTimeout(() => {
+    translatingList.value = translatingList.value.filter((x) => x !== id)
+    const next = new Set(translatedIds.value)
+    next.add(id)
+    translatedIds.value = next
+  }, 500)
+}
+
+// translatedText appends the demo marker to a comment's text when translated.
+function translatedText(content, id) {
+  if (translatedIds.value.has(id)) {
+    return content + ' (translated)'
+  }
+  return content
 }
 
 function fmtCount(n) {
@@ -1038,6 +1150,12 @@ function captureScreenshot() {
       <span class="sound-btn" @click="toggleSound">{{ soundOn ? '🔊' : '🔇' }}</span>
       <!-- Feature: 视频壁纸模式 — 🖼️ button enters fullscreen wallpaper/screensaver mode. -->
       <span class="wallpaper-btn" @click="enterWallpaper">🖼️</span>
+      <!-- ===================== Feature: 视频睡眠定时 (sleep timer) =====================
+           😴 opens a small options popup; an active timer shows a "剩余 N分钟" badge. -->
+      <span class="sleep-btn" @click="sleepMenu = true">
+        😴
+        <span v-if="sleepActive" class="sleep-badge">剩余 {{ sleepRemaining }}分钟</span>
+      </span>
       <van-icon name="search" class="search-btn" size="22" @click="router.push('/discover')" />
     </div>
 
@@ -1241,10 +1359,18 @@ function captureScreenshot() {
                 <span class="cp-pin-tag">📌 置顶</span>
               </div>
               <div class="cp-content">
-                <template v-for="(seg, si) in parseMentions(pinnedComment.content)" :key="si">
-                  <span v-if="seg.type === 'mention'" class="cp-mention">{{ seg.value }}</span>
-                  <span v-else>{{ seg.value }}</span>
-                </template>
+                <span v-if="!isTranslating(pinnedComment.id)">
+                  <template v-for="(seg, si) in parseMentions(translatedText(pinnedComment.content, pinnedComment.id))" :key="si">
+                    <span v-if="seg.type === 'mention'" class="cp-mention">{{ seg.value }}</span>
+                    <span v-else>{{ seg.value }}</span>
+                  </template>
+                </span>
+                <span v-if="isTranslating(pinnedComment.id)" class="cp-translating">翻译中...</span>
+                <span v-if="isTranslated(pinnedComment.id)" class="cp-translated-tag">已翻译</span>
+              </div>
+              <!-- Feature: 评论翻译指示 — 🌐翻译 toggle (demo translation) -->
+              <div class="cp-translate-row">
+                <span class="cp-translate-btn" :class="{ active: isTranslated(pinnedComment.id) }" @click="toggleTranslate(pinnedComment)">🌐{{ isTranslated(pinnedComment.id) ? '取消翻译' : '翻译' }}</span>
               </div>
               <div class="cp-reply-btn" :class="{ active: replyTo && replyTo.id === pinnedComment.id }" @click="startReply(pinnedComment)">回复</div>
               <div v-if="replyTo && replyTo.id === pinnedComment.id" class="cp-sub-input">
@@ -1285,10 +1411,18 @@ function captureScreenshot() {
             <div class="cp-body">
               <div class="cp-user">{{ c.username }}</div>
               <div class="cp-content">
-                <template v-for="(seg, si) in parseMentions(c.content)" :key="si">
-                  <span v-if="seg.type === 'mention'" class="cp-mention">{{ seg.value }}</span>
-                  <span v-else>{{ seg.value }}</span>
-                </template>
+                <span v-if="!isTranslating(c.id)">
+                  <template v-for="(seg, si) in parseMentions(translatedText(c.content, c.id))" :key="si">
+                    <span v-if="seg.type === 'mention'" class="cp-mention">{{ seg.value }}</span>
+                    <span v-else>{{ seg.value }}</span>
+                  </template>
+                </span>
+                <span v-if="isTranslating(c.id)" class="cp-translating">翻译中...</span>
+                <span v-if="isTranslated(c.id)" class="cp-translated-tag">已翻译</span>
+              </div>
+              <!-- Feature: 评论翻译指示 — 🌐翻译 toggle (demo translation) -->
+              <div class="cp-translate-row">
+                <span class="cp-translate-btn" :class="{ active: isTranslated(c.id) }" @click="toggleTranslate(c)">🌐{{ isTranslated(c.id) ? '取消翻译' : '翻译' }}</span>
               </div>
               <div class="cp-reply-btn" :class="{ active: replyTo && replyTo.id === c.id }" @click="startReply(c)">回复</div>
               <!-- Inline sub-input shown when replying to this comment -->
@@ -1404,6 +1538,28 @@ function captureScreenshot() {
         </div>
       </div>
     </van-popup>
+
+    <!-- ===================== Feature: Video sleep timer (视频睡眠定时) =====================
+         A centered popup with 15分钟 / 30分钟 / 60分钟 / 关闭 options. Selecting a
+         duration arms a timer that auto-pauses all videos when it fires; 关闭
+         cancels a running timer. The active countdown shows as a badge on 😴. -->
+    <van-popup v-model:show="sleepMenu" round :style="{ width: '78%', maxWidth: '340px', padding: '0' }">
+      <div class="sleep-panel">
+        <div class="sleep-head">😴 睡眠定时</div>
+        <div class="sleep-sub">选定时间后自动暂停播放</div>
+        <div class="sleep-opts">
+          <div
+            v-for="m in SLEEP_OPTIONS"
+            :key="m"
+            class="sleep-opt"
+            :class="{ active: sleepActive && sleepRemaining > 0 }"
+            @click="startSleep(m)"
+          >{{ m }}分钟</div>
+          <div class="sleep-opt sleep-opt-off" @click="cancelSleep">关闭</div>
+        </div>
+        <div v-if="sleepActive" class="sleep-status">定时中 · 剩余 {{ sleepRemaining }} 分钟</div>
+      </div>
+    </van-popup>
   </div>
 </template>
 
@@ -1433,6 +1589,59 @@ function captureScreenshot() {
   line-height: 1;
 }
 .wallpaper-btn:active { opacity: 0.7; }
+/* ===================== Feature: 视频睡眠定时 (sleep timer) =====================
+   😴 button sits just left of the 🖼️ wallpaper button; carries a small badge
+   with the remaining minutes while a timer is active. */
+.sleep-btn {
+  position: absolute;
+  right: 124px;
+  font-size: 20px;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.sleep-btn:active { opacity: 0.7; }
+.sleep-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  background: #fe2c55;
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+/* Centered options popup */
+.sleep-panel { padding: 20px 18px 22px; background: #161616; }
+.sleep-head { text-align: center; color: #fff; font-size: 17px; font-weight: bold; }
+.sleep-sub { text-align: center; color: #888; font-size: 12px; margin-top: 4px; }
+.sleep-opts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 16px; }
+.sleep-opt {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 46px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  background: #222;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.sleep-opt:active { background: #2c2c2c; }
+.sleep-opt.active { border-color: #fe2c55; }
+.sleep-opt-off { grid-column: 1 / -1; color: #fe2c55; }
+.sleep-status {
+  text-align: center;
+  color: #25f4ee;
+  font-size: 12px;
+  margin-top: 14px;
+}
 /* The small "退出" button shown only in wallpaper mode (top-right corner). */
 .wallpaper-exit {
   position: fixed;
@@ -1535,6 +1744,40 @@ function captureScreenshot() {
 .cp-content { color: #fff; font-size: 14px; margin-top: 3px; }
 .cp-reply-btn { color: #888; font-size: 12px; margin-top: 6px; display: inline-block; cursor: pointer; }
 .cp-reply-btn.active { color: #fe2c55; }
+/* ===================== Feature: Comment translation indicator (评论翻译指示) =====================
+   🌐翻译 button sits below the comment text; an active translation shows an
+   "已翻译" tag and a "(translated)" marker appended to the text. While the
+   500ms fake translation runs, a "翻译中..." placeholder is shown. */
+.cp-translate-row { margin-top: 6px; }
+.cp-translate-btn {
+  display: inline-block;
+  color: #25f4ee;
+  font-size: 12px;
+  padding: 2px 8px;
+  background: rgba(37, 244, 238, 0.1);
+  border: 1px solid rgba(37, 244, 238, 0.35);
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.cp-translate-btn:active { opacity: 0.7; }
+.cp-translate-btn.active { color: #fff; background: rgba(37, 244, 238, 0.25); border-color: #25f4ee; }
+.cp-translated-tag {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: #25f4ee;
+  padding: 1px 6px;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+.cp-translating {
+  color: #25f4ee;
+  font-size: 13px;
+}
 .cp-sub-input { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 .cp-like { display: flex; flex-direction: column; align-items: center; color: #888; font-size: 11px; cursor: pointer; }
 .cp-like.active { color: #fe2c55; }

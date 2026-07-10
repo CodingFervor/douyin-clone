@@ -154,6 +154,60 @@ function applySuggestion(text) {
 function reshuffleAi() {
   generateSuggestions()
 }
+
+// ===================== Feature: Upload preview mode (上传预览模式) =====================
+// A 👁️预览 button (next to 发布) opens a full-screen mock of how the video will
+// look in the feed: the chosen video/cover fills the screen with the title,
+// description, and tags overlaid at the bottom, and an action rail on the right
+// with all counts at 0 (the post hasn't been published yet). Two buttons let
+// the creator go back to editing or confirm + publish directly.
+const showPreview = ref(false)
+// The media source used by the preview: the selected file's object URL when in
+// file mode, otherwise the pasted video URL. Falls back to the cover image.
+const previewSrc = computed(() => {
+  if (mode.value === 'file' && pickerVideoRef.value) return pickerVideoRef.value
+  if (mode.value === 'url' && form.value.video_url) return form.value.video_url
+  return form.value.cover_url || ''
+})
+// Whether the preview has a real video to play (vs. falling back to the cover).
+// True when a file is selected or a video URL is filled; the cover alone is an
+// image and is rendered by a separate branch.
+const previewHasVideo = computed(() => {
+  if (mode.value === 'file') return !!file.value
+  return !!form.value.video_url
+})
+// Parsed tags (comma-separated) for the preview overlay.
+const previewTags = computed(() => {
+  return (form.value.tags || '').split(/[,，]+/).map((t) => t.trim()).filter(Boolean)
+})
+
+// canPreview requires at least a title and a media source so the preview is meaningful.
+const canPreview = computed(() => {
+  return !!form.value.title && !!previewSrc.value
+})
+
+// openPreview gates on canPreview so an empty form can't open the preview.
+function openPreview() {
+  if (!form.value.title) { showToast('请先填写标题'); return }
+  if (!previewSrc.value) { showToast('请先选择视频'); return }
+  showPreview.value = true
+  // Auto-play the preview video once it mounts.
+  nextTick(() => {
+    const el = document.querySelector('.preview-video')
+    if (el) { el.muted = true; el.play().catch(() => {}) }
+  })
+}
+function closePreview() {
+  // Pause the preview video when leaving to avoid background audio.
+  const el = document.querySelector('.preview-video')
+  if (el) el.pause()
+  showPreview.value = false
+}
+// confirmPublish closes the preview and proceeds with the normal submit flow.
+async function confirmPublish() {
+  showPreview.value = false
+  await submit()
+}
 const filters = [
   { value: 'none', label: '原图' },
   { value: 'vintage', label: '复古' },
@@ -323,8 +377,12 @@ async function submit() {
     <van-progress v-if="uploading" :percentage="progress" color="#fe2c55" style="margin: 12px 24px; width: calc(100% - 48px)" />
     <!-- ===================== Feature: 发布增强 (预计处理时间) ===================== -->
     <div class="process-time"><van-icon name="clock-o" color="#25f4ee" size="14" /> 预计处理时间: ~3秒</div>
-    <div style="margin: 20px">
-      <van-button type="primary" color="#fe2c55" block round :loading="uploading" @click="submit">发布</van-button>
+    <!-- ===================== Feature: 上传预览模式 (upload preview) =====================
+         👁️预览 sits next to 发布; opens a full-screen mock of how the post will
+         look in the feed before publishing. -->
+    <div class="publish-row">
+      <van-button round :disabled="!canPreview" class="preview-btn" @click="openPreview">👁️预览</van-button>
+      <van-button type="primary" color="#fe2c55" round :loading="uploading" class="publish-btn" @click="submit">发布</van-button>
     </div>
 
     <!-- ===================== Feature: AI文案生成器 popup ===================== -->
@@ -345,6 +403,64 @@ async function submit() {
         </div>
       </div>
     </van-popup>
+
+    <!-- ===================== Feature: 上传预览模式 (upload preview) =====================
+         A full-screen mock of how the video will appear in the feed. The chosen
+         video (or cover image fallback) fills the screen with the title,
+         description and tags overlaid at the bottom and an action rail on the
+         right with all counts at 0. Two buttons let the creator return to
+         editing or confirm + publish. -->
+    <div v-if="showPreview" class="preview-overlay">
+      <div class="preview-stage">
+        <!-- Full-screen media: plays the video when available, else the cover -->
+        <video
+          v-if="previewHasVideo"
+          class="preview-video"
+          :src="previewSrc"
+          :poster="form.cover_url"
+          loop
+          muted
+          playsinline
+          autoplay
+        ></video>
+        <img v-else-if="form.cover_url" class="preview-cover" :src="form.cover_url" />
+        <div v-else class="preview-empty">无预览内容</div>
+
+        <!-- "预览模式" label top-left -->
+        <div class="preview-mode-tag">👁️ 预览模式</div>
+
+        <!-- Mock action rail (counts at 0 — the post is unpublished) -->
+        <div class="preview-rail">
+          <div class="pr-avatar-wrap">
+            <div class="mood-ring">
+              <img class="pr-avatar" src="https://via.placeholder.com/48" />
+            </div>
+          </div>
+          <div class="pr-item"><van-icon name="like-o" color="#fff" size="32" /><span>0</span></div>
+          <div class="pr-item"><van-icon name="chat-o" color="#fff" size="32" /><span>0</span></div>
+          <div class="pr-item"><van-icon name="star-o" color="#fff" size="32" /><span>0</span></div>
+          <div class="pr-item"><van-icon name="share-o" color="#fff" size="32" /><span>分享</span></div>
+          <div class="pr-disc"><van-icon name="music-o" /></div>
+        </div>
+
+        <!-- Overlaid title / description / tags, feed-style -->
+        <div class="preview-info">
+          <div class="pr-author">@我</div>
+          <div class="pr-title">{{ form.title || '未填写标题' }}</div>
+          <div v-if="form.description" class="pr-desc">{{ form.description }}</div>
+          <div v-if="previewTags.length" class="pr-tags">
+            <span v-for="t in previewTags" :key="t" class="pr-tag">#{{ t }}</span>
+          </div>
+          <div class="pr-music"><van-icon name="music-o" size="14" /><span>{{ form.music || '原声' }}</span></div>
+        </div>
+
+        <!-- Bottom action buttons: return to editor or confirm + publish -->
+        <div class="preview-actions">
+          <van-button round class="pa-btn pa-back" @click="closePreview">返回编辑</van-button>
+          <van-button round color="#fe2c55" class="pa-btn pa-confirm" @click="confirmPublish">确认发布</van-button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -423,4 +539,155 @@ async function submit() {
 .tips-slide-enter-active, .tips-slide-leave-active { transition: all 0.25s ease; overflow: hidden; }
 .tips-slide-enter-from, .tips-slide-leave-to { opacity: 0; max-height: 0; margin-top: 0; }
 .tips-slide-enter-to, .tips-slide-leave-from { opacity: 1; max-height: 200px; }
+
+/* ===================== Feature: 上传预览模式 (upload preview) ===================== */
+/* Publish row: 👁️预览 + 发布 side by side */
+.publish-row { display: flex; gap: 10px; margin: 20px; }
+.preview-btn {
+  flex: 1;
+  color: #fff !important;
+  background: #222 !important;
+  border: 1px solid #333 !important;
+}
+.preview-btn:active { opacity: 0.8; }
+.publish-btn { flex: 1.6; }
+/* Full-screen overlay mocking the feed video card */
+.preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #000;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+}
+.preview-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+.preview-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+.preview-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.preview-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 14px;
+}
+/* "预览模式" label */
+.preview-mode-tag {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 12;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(254, 44, 85, 0.85);
+  padding: 4px 12px;
+  border-radius: 12px;
+}
+/* Mock action rail on the right */
+.preview-rail {
+  position: absolute;
+  right: 10px;
+  bottom: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  z-index: 10;
+}
+.pr-avatar-wrap { margin-bottom: 6px; }
+/* A static mood ring (gray) so the mock mirrors the feed's avatar styling */
+.mood-ring {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  padding: 3px;
+  background: #000;
+}
+.mood-ring::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, #555, #888, #555, #555);
+}
+.pr-avatar {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid #000;
+  box-sizing: border-box;
+}
+.pr-item { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.pr-item span { color: #fff; font-size: 12px; }
+.pr-disc {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #222;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pr-disc .van-icon { color: #25f4ee; font-size: 24px; }
+/* Overlaid info bottom-left */
+.preview-info {
+  position: absolute;
+  left: 12px;
+  right: 76px;
+  bottom: 84px;
+  z-index: 10;
+}
+.pr-author { color: #fff; font-size: 15px; font-weight: bold; margin-bottom: 6px; }
+.pr-title { color: #fff; font-size: 14px; line-height: 20px; margin-bottom: 6px; }
+.pr-desc { color: rgba(255,255,255,0.85); font-size: 13px; line-height: 18px; margin-bottom: 6px; }
+.pr-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.pr-tag {
+  color: #fff;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(254,44,85,0.75);
+  line-height: 16px;
+}
+.pr-music { display: flex; align-items: center; gap: 6px; color: #fff; font-size: 12px; }
+/* Bottom action buttons */
+.preview-actions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 20px;
+  z-index: 13;
+  display: flex;
+  gap: 10px;
+  padding: 0 16px;
+  box-sizing: border-box;
+}
+.pa-btn { flex: 1; }
+.pa-back {
+  color: #fff !important;
+  background: rgba(0,0,0,0.6) !important;
+  border: 1px solid rgba(255,255,255,0.35) !important;
+}
+.pa-back :deep(.van-button__text) { color: #fff; }
 </style>

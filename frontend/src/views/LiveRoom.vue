@@ -119,6 +119,8 @@ onUnmounted(() => {
   // Clean up dice game timers to avoid leaks when leaving the room.
   if (diceSpinTimer) clearInterval(diceSpinTimer)
   if (diceStopTimer) clearTimeout(diceStopTimer)
+  // Feature: 排行榜更新动画 — clear the flash-class reset timer.
+  if (changeClassTimer) clearTimeout(changeClassTimer)
 })
 
 async function pollMessages() {
@@ -263,7 +265,59 @@ async function grab() {
 
 // ---- Contribution board (贡献榜) ----
 async function loadContributors() {
-  try { contributors.value = await getContributors(route.params.id) } catch (e) { contributors.value = [] }
+  try {
+    const fresh = await getContributors(route.params.id)
+    computeContributorChanges(fresh)
+    contributors.value = fresh
+  } catch (e) {
+    computeContributorChanges([])
+    contributors.value = []
+  }
+}
+
+// ===================== Feature: Leaderboard update animation (排行榜更新动画) =====================
+// When the contributor list refreshes (after contribute/ban actions), animate
+// the changed rows:
+//   - items that moved up (rank improved) get a green flash
+//   - items that moved down (rank dropped) get a brief red flash
+//   - newly appeared items slide in from the right (handled by <transition-group>)
+//
+// prevRank is a map of { [user_id]: rankIndex } captured after each refresh, so
+// the next refresh can compare old vs new positions. changeClass holds the
+// per-user flash class applied for ~1.2s after a refresh.
+const prevRank = ref({})                 // { [user_id]: previousIndex }
+const changeClass = ref({})              // { [user_id]: 'flash-up' | 'flash-down' }
+let changeClassTimer = null
+
+// computeContributorChanges compares the incoming list against the previously
+// stored positions, populates changeClass, then records the new baseline. New
+// items get no flash class here — <transition-group> handles their slide-in.
+function computeContributorChanges(fresh) {
+  const newRank = {}
+  const classes = {}
+  fresh.forEach((c, i) => {
+    const uid = c.user_id
+    newRank[uid] = i
+    if (prevRank.value[uid] != null) {
+      const old = prevRank.value[uid]
+      // A lower index = a higher rank = moved up. Only flag real changes so an
+      // unchanged list doesn't flash.
+      if (i < old) classes[uid] = 'flash-up'
+      else if (i > old) classes[uid] = 'flash-down'
+    }
+    // Items not in prevRank are new — they animate via transition-group instead.
+  })
+  changeClass.value = classes
+  prevRank.value = newRank
+  // Clear the flash classes after the animation so a subsequent identical
+  // refresh (same positions) flashes again correctly.
+  if (changeClassTimer) clearTimeout(changeClassTimer)
+  changeClassTimer = setTimeout(() => { changeClass.value = {} }, 1200)
+}
+
+// contributorClass returns the per-item animation class (if any) for a row.
+function contributorClass(c) {
+  return changeClass.value[c.user_id] || ''
 }
 async function doContribute() {
   try {
@@ -699,16 +753,26 @@ async function doAnchorFollow() {
       <div class="contrib-panel">
         <div class="cp-head">🏆 贡献榜</div>
         <div v-if="!contributors.length" class="cp-empty">暂无贡献，快来打榜吧</div>
-        <div v-for="(c, i) in contributors" :key="c.user_id" class="cp-item">
-          <span class="cp-rank" :class="{ top: i < 3 }">{{ i + 1 }}</span>
-          <img class="cp-avatar" :src="c.avatar" />
-          <span class="cp-name">
-            {{ c.nickname }}
-            <!-- Feature: 粉丝勋章等级配色 — tier-colored pill next to the name -->
-            <span class="fan-badge" :class="fanTier(c.amount).cls">{{ fanTier(c.amount).label }}</span>
-          </span>
-          <span class="cp-amount">{{ c.amount }}</span>
-        </div>
+        <!-- ===================== Feature: 排行榜更新动画 (leaderboard animation) =====================
+             transition-group slides newly-appeared contributors in from the right.
+             Per-row changeClass adds a green/red flash when a row moved up/down. -->
+        <transition-group name="contrib-slide" tag="div" class="contrib-list">
+          <div
+            v-for="(c, i) in contributors"
+            :key="c.user_id"
+            class="cp-item"
+            :class="contributorClass(c)"
+          >
+            <span class="cp-rank" :class="{ top: i < 3 }">{{ i + 1 }}</span>
+            <img class="cp-avatar" :src="c.avatar" />
+            <span class="cp-name">
+              {{ c.nickname }}
+              <!-- Feature: 粉丝勋章等级配色 — tier-colored pill next to the name -->
+              <span class="fan-badge" :class="fanTier(c.amount).cls">{{ fanTier(c.amount).label }}</span>
+            </span>
+            <span class="cp-amount">{{ c.amount }}</span>
+          </div>
+        </transition-group>
         <van-button block round :color="themeAccent" style="margin-top: 16px" @click="doContribute">为TA打榜 +10</van-button>
       </div>
     </van-popup>
@@ -1073,6 +1137,49 @@ async function doAnchorFollow() {
 .cp-avatar { width: 36px; height: 36px; border-radius: 50%; }
 .cp-name { flex: 1; color: #fff; font-size: 14px; }
 .cp-amount { color: #fe2c55; font-weight: bold; font-size: 14px; }
+
+/* ===================== Feature: Leaderboard update animation (排行榜更新动画) =====================
+   When the contributor list refreshes, rows that changed rank get a brief flash:
+   moved up → green flash, moved down → red flash. New rows slide in from the
+   right via Vue's <transition-group>. */
+.contrib-list { display: flex; flex-direction: column; position: relative; }
+/* Green flash for a row whose rank improved (moved up the board). */
+.cp-item.flash-up {
+  animation: contribFlashUp 1.2s ease-out;
+}
+/* Red flash for a row whose rank dropped (moved down the board). */
+.cp-item.flash-down {
+  animation: contribFlashDown 1.2s ease-out;
+}
+@keyframes contribFlashUp {
+  0%   { background: rgba(52, 199, 89, 0.45); box-shadow: inset 3px 0 0 #34c759; }
+  100% { background: transparent; box-shadow: inset 3px 0 0 transparent; }
+}
+@keyframes contribFlashDown {
+  0%   { background: rgba(255, 59, 48, 0.45); box-shadow: inset 3px 0 0 #ff3b30; }
+  100% { background: transparent; box-shadow: inset 3px 0 0 transparent; }
+}
+/* transition-group: newly-added contributors slide in from the right. */
+.contrib-slide-enter-active {
+  transition: transform 0.4s ease-out, opacity 0.4s ease-out;
+}
+.contrib-slide-leave-active {
+  transition: transform 0.3s ease-in, opacity 0.3s ease-in;
+  position: absolute;
+  width: 100%;
+}
+.contrib-slide-enter-from {
+  transform: translateX(60px);
+  opacity: 0;
+}
+.contrib-slide-leave-to {
+  transform: translateX(-30px);
+  opacity: 0;
+}
+/* Smooth repositioning of existing rows when the order changes. */
+.contrib-slide-move {
+  transition: transform 0.4s ease;
+}
 /* ===================== Highlight moments (直播高光时刻) ===================== */
 /* Floating gold badge button near the PK/guard area */
 .highlight-entry {
