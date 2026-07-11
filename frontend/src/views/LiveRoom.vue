@@ -88,6 +88,50 @@ function restoreTheme() {
   }
 }
 
+// ===================== Feature: Live room background music (直播间背景音乐) =====================
+// A "🎵 BGM" button near the theme entry opens a popup with 3 ambient tracks.
+// Selecting a track sets the active BGM (visual only — no actual audio plays),
+// shows a "已切换: <name>" toast, and persists the choice to localStorage
+// 'dy_live_bgm'. When a track is active, a pulsing 🎵 shows in the corner.
+const BGM_KEY = 'dy_live_bgm'
+const BGM_TRACKS = [
+  { key: 'melody', name: '轻松旋律', icon: '🎵' },
+  { key: 'electro', name: '节奏电音', icon: '🎧' },
+  { key: 'nature', name: '自然白噪音', icon: '🌿' },
+]
+const showBgm = ref(false)       // popup visibility
+const bgmTrack = ref(null)       // the active track object ({key,name,icon}) or null
+// Derived: the active track's name (for the toast), '' when none.
+function bgmName() {
+  return bgmTrack.value ? bgmTrack.value.name : ''
+}
+// Selecting a track activates it, persists the choice, and toasts the switch.
+function selectBgm(t) {
+  bgmTrack.value = t
+  try { localStorage.setItem(BGM_KEY, t.key) } catch (e) {}
+  showBgm.value = false
+  showToast('已切换: ' + t.name)
+}
+// Turn the BGM off: clear the active track + remove the persisted choice.
+function clearBgm() {
+  bgmTrack.value = null
+  try { localStorage.removeItem(BGM_KEY) } catch (e) {}
+  showBgm.value = false
+  showToast('已关闭背景音乐')
+}
+// restoreBgm reads the saved track key on mount and reactivates it (no toast).
+function restoreBgm() {
+  try {
+    const key = localStorage.getItem(BGM_KEY)
+    if (key) {
+      const found = BGM_TRACKS.find((t) => t.key === key)
+      if (found) bgmTrack.value = found
+    }
+  } catch (e) {
+    // localStorage unavailable — keep default (off).
+  }
+}
+
 onMounted(async () => {
   try {
     const res = await getLiveRoom(route.params.id)
@@ -109,6 +153,8 @@ onMounted(async () => {
   loadContributors()
   // Feature: 直播间主题装扮 — restore the saved theme on mount.
   restoreTheme()
+  // Feature: 直播间背景音乐 — restore the saved BGM track on mount (no toast).
+  restoreBgm()
   // Feature: 直播间幸运数字 — load today's lucky points on mount.
   loadLuckyPoints()
   // Feature: 主播开播提醒 — load the armed state + next schedule on mount.
@@ -764,6 +810,13 @@ function formatScheduleDate(s) {
       <span class="theme-swatch" :style="{ background: themeAccent }"></span>
       🎨 主题
     </div>
+
+    <!-- ===================== Feature: 直播间背景音乐 (BGM) ===================== -->
+    <div class="bgm-entry" :class="{ active: bgmTrack }" @click="showBgm = true">
+      🎵 BGM<span v-if="bgmTrack" class="bgm-entry-name">{{ bgmName() }}</span>
+    </div>
+    <!-- Pulsing music-note indicator shown in the corner while BGM is on. -->
+    <div v-if="bgmTrack" class="bgm-indicator">🎵</div>
     <van-popup v-model:show="showTheme" position="bottom" round>
       <div class="theme-panel">
         <div class="tp-head">🎨 主题装扮</div>
@@ -782,6 +835,30 @@ function formatScheduleDate(s) {
             <span class="tp-label">{{ t.label }}</span>
           </div>
         </div>
+      </div>
+    </van-popup>
+
+    <!-- ===================== Feature: 直播间背景音乐 (BGM) popup =====================
+         Three ambient tracks (visual only, no actual audio). Selecting one sets the
+         active BGM + toasts the switch; a 关闭 button clears it. -->
+    <van-popup v-model:show="showBgm" position="bottom" round>
+      <div class="bgm-panel">
+        <div class="bgm-head">🎵 背景音乐</div>
+        <div class="bgm-sub">为直播间选择氛围音乐（示例）</div>
+        <div class="bgm-list">
+          <div
+            v-for="t in BGM_TRACKS"
+            :key="t.key"
+            class="bgm-item"
+            :class="{ active: bgmTrack && bgmTrack.key === t.key }"
+            @click="selectBgm(t)"
+          >
+            <span class="bgm-icon">{{ t.icon }}</span>
+            <span class="bgm-name">{{ t.name }}</span>
+            <span v-if="bgmTrack && bgmTrack.key === t.key" class="bgm-check">✓</span>
+          </div>
+        </div>
+        <van-button block round class="bgm-off-btn" @click="clearBgm">关闭背景音乐</van-button>
       </div>
     </van-popup>
 
@@ -1706,6 +1783,69 @@ function formatScheduleDate(s) {
   border: 2px solid #161616;
 }
 .tp-label { color: #fff; font-size: 12px; }
+
+/* ===================== Feature: 直播间背景音乐 (BGM) ===================== */
+/* Entry button — sits below the theme entry, turns themed-red when a track is on. */
+.bgm-entry {
+  position: absolute;
+  top: 290px;
+  right: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0,0,0,0.5);
+  color: #fff;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.bgm-entry.active {
+  background: rgba(254,44,85,0.85);
+  box-shadow: 0 2px 8px rgba(254,44,85,0.4);
+}
+.bgm-entry:active { transform: scale(0.95); }
+.bgm-entry-name { font-size: 10px; opacity: 0.9; }
+
+/* Pulsing music-note indicator in the corner while BGM is on. */
+.bgm-indicator {
+  position: absolute;
+  bottom: 168px;
+  left: 16px;
+  z-index: 12;
+  font-size: 22px;
+  filter: drop-shadow(0 0 8px rgba(254,44,85,0.7));
+  animation: bgmPulse 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes bgmPulse {
+  0%, 100% { transform: scale(1); opacity: 0.7; }
+  50% { transform: scale(1.35); opacity: 1; }
+}
+
+/* Popup panel */
+.bgm-panel { background: #161616; padding: 16px; }
+.bgm-head { text-align: center; color: #fff; font-size: 16px; font-weight: bold; }
+.bgm-sub { text-align: center; color: #888; font-size: 12px; margin: 4px 0 16px; }
+.bgm-list { display: flex; flex-direction: column; gap: 10px; }
+.bgm-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #1f1f1f;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.bgm-item:active { background: #262626; }
+.bgm-item.active { border-color: #fe2c55; background: rgba(254,44,85,0.12); }
+.bgm-icon { font-size: 26px; }
+.bgm-name { flex: 1; color: #fff; font-size: 15px; }
+.bgm-check { color: #fe2c55; font-size: 18px; font-weight: bold; }
+.bgm-off-btn { margin-top: 18px; background: #2a2a2a; color: #fff; }
 
 /* ===================== Feature: 主播名片 (anchor intro card) ===================== */
 /* Make the host info in the top bar feel tappable. */

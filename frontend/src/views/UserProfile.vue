@@ -74,6 +74,88 @@ function fmtCount(n) {
   if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
   return String(n)
 }
+
+// ===================== Feature: Profile stats radar chart (主页数据雷达图) =====================
+// A CSS/SVG pentagon radar visualizing 5 normalized (0-100) stats:
+//   粉丝力  — followers
+//   创作力  — video count
+//   互动力  — likes
+//   影响力  — followers × following (reach)
+//   活跃度  — level
+// Normalization is log-based so small and large accounts both map to a readable
+// spread (no external chart library used — pure inline SVG).
+const RADAR_AXES = ['粉丝力', '创作力', '互动力', '影响力', '活跃度']
+// norm maps a raw count to 0-100 using a log scale capped at `cap` (saturation).
+// 0 → 0, cap → 100, with smooth log growth in between so a brand-new account
+// isn't pinned at the floor.
+function normLog(value, cap) {
+  const v = Math.max(0, value || 0)
+  if (v <= 0) return 0
+  if (cap <= 0) return 100
+  if (v >= cap) return 100
+  // log1p keeps very small values visible while large values saturate.
+  return Math.round((Math.log1p(v) / Math.log1p(cap)) * 100)
+}
+
+// The 5 normalized axis values for the current user. Computed once user data is
+// loaded; capped so the radar stays readable for popular accounts.
+const radarValues = computed(() => {
+  const u = user.value || {}
+  const followers = u.followers_count || 0
+  const following = u.following_count || 0
+  const likes = u.likes_count || 0
+  const videoCount = videos.value.length
+  const level = u.level || 0
+  return [
+    normLog(followers, 100000),               // 粉丝力 — cap 10w followers
+    normLog(videoCount, 200),                  // 创作力 — cap 200 videos
+    normLog(likes, 1000000),                   // 互动力 — cap 100w likes
+    normLog(followers * following, 5000000),   // 影响力 — followers × following
+    normLog(level, 60),                        // 活跃度 — level (王者 ~ 60)
+  ]
+})
+
+// Geometry: a pentagon centered in a 200×200 viewBox, radius 70, with the first
+// vertex pointing up. Points start at the top and go clockwise.
+const RADAR_CX = 100
+const RADAR_CY = 100
+const RADAR_R = 70
+// angleFor returns the (x, y) of axis i at a given fraction (0-1) of the radius.
+function radarPoint(i, fraction) {
+  // -90deg offset so axis 0 points straight up.
+  const angle = (Math.PI * 2 * i) / 5 - Math.PI / 2
+  const r = RADAR_R * fraction
+  return {
+    x: RADAR_CX + r * Math.cos(angle),
+    y: RADAR_CY + r * Math.sin(angle),
+  }
+}
+// The outer pentagon vertices (the 100% reference frame).
+const radarOuter = RADAR_AXES.map((_, i) => {
+  const p = radarPoint(i, 1)
+  return `${p.x.toFixed(1)},${p.y.toFixed(1)}`
+}).join(' ')
+// The data polygon points, scaled by each axis value.
+const radarData = computed(() =>
+  radarValues.value
+    .map((val, i) => {
+      const p = radarPoint(i, val / 100)
+      return `${p.x.toFixed(1)},${p.y.toFixed(1)}`
+    })
+    .join(' ')
+)
+// Concentric reference rings at 25/50/75/100% so the data shape has context.
+const radarRings = [0.25, 0.5, 0.75, 1].map((f) =>
+  RADAR_AXES.map((_, i) => {
+    const p = radarPoint(i, f)
+    return `${p.x.toFixed(1)},${p.y.toFixed(1)}`
+  }).join(' ')
+)
+// Axis label positions sit just outside the outer pentagon.
+const radarLabels = RADAR_AXES.map((label, i) => {
+  const p = radarPoint(i, 1.28)
+  return { label, x: p.x, y: p.y, val: radarValues.value[i] }
+})
 </script>
 
 <template>
@@ -107,6 +189,55 @@ function fmtCount(n) {
             :title="t.label"
             @click="pickTheme(t.key)"
           ></span>
+        </div>
+      </div>
+
+      <!-- ===================== Feature: Profile stats radar chart (主页数据雷达图) =====================
+           A pure CSS/SVG pentagon radar visualizing 5 normalized stats. The filled
+           semi-transparent area is the user's profile; concentric rings + axis
+           labels give context. Shown just below the user info section. -->
+      <div class="radar-card">
+        <div class="radar-title">📊 数据雷达</div>
+        <svg class="radar-svg" viewBox="0 0 200 200">
+          <!-- Concentric reference rings -->
+          <polygon v-for="(ring, ri) in radarRings" :key="'ring' + ri" class="radar-ring" :points="ring" />
+          <!-- Spokes from center to each outer vertex -->
+          <line
+            v-for="(lbl, i) in radarLabels"
+            :key="'spoke' + i"
+            class="radar-spoke"
+            :x1="RADAR_CX"
+            :y1="RADAR_CY"
+            :x2="radarPoint(i, 1).x"
+            :y2="radarPoint(i, 1).y"
+          />
+          <!-- Filled data area -->
+          <polygon class="radar-fill" :points="radarData" />
+          <!-- Data vertices -->
+          <circle
+            v-for="(val, i) in radarValues"
+            :key="'dot' + i"
+            class="radar-dot"
+            :cx="radarPoint(i, val / 100).x"
+            :cy="radarPoint(i, val / 100).y"
+            r="3"
+          />
+          <!-- Axis labels with value -->
+          <text
+            v-for="(lbl, i) in radarLabels"
+            :key="'lbl' + i"
+            class="radar-label"
+            :x="lbl.x"
+            :y="lbl.y"
+            text-anchor="middle"
+            dominant-baseline="middle"
+          >{{ lbl.label }}</text>
+        </svg>
+        <div class="radar-legend">
+          <span v-for="(axis, i) in RADAR_AXES" :key="'leg' + i" class="radar-legend-item">
+            <span class="radar-legend-name">{{ axis }}</span>
+            <span class="radar-legend-val">{{ radarValues[i] }}</span>
+          </span>
         </div>
       </div>
       <div class="tab-head">作品 {{ videos.length }}</div>
@@ -156,4 +287,41 @@ function fmtCount(n) {
   box-shadow: 0 0 0 2px rgba(255,255,255,0.5);
   transform: scale(1.15);
 }
+
+/* ===================== Feature: Profile stats radar chart (主页数据雷达图) ===================== */
+/* A card holding the SVG pentagon radar + a legend of the normalized values. */
+.radar-card {
+  background: #161616;
+  margin: 12px;
+  padding: 16px 12px;
+  border-radius: 14px;
+}
+.radar-title { color: #fff; font-size: 14px; font-weight: bold; text-align: center; margin-bottom: 8px; }
+.radar-svg { width: 100%; max-width: 300px; height: auto; display: block; margin: 0 auto; }
+/* Concentric reference rings — subtle gray pentagons */
+.radar-ring { fill: none; stroke: rgba(255,255,255,0.12); stroke-width: 1; }
+/* Spokes from center to each vertex */
+.radar-spoke { stroke: rgba(255,255,255,0.12); stroke-width: 1; }
+/* Filled semi-transparent data area — themed red */
+.radar-fill {
+  fill: rgba(254,44,85,0.28);
+  stroke: #fe2c55;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+/* Data vertex dots */
+.radar-dot { fill: #fe2c55; }
+/* Axis labels */
+.radar-label { fill: rgba(255,255,255,0.85); font-size: 11px; font-weight: 600; }
+/* Legend — 5 normalized values in a row */
+.radar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 14px;
+  margin-top: 12px;
+}
+.radar-legend-item { display: flex; flex-direction: column; align-items: center; }
+.radar-legend-name { color: #888; font-size: 11px; }
+.radar-legend-val { color: #fe2c55; font-size: 14px; font-weight: bold; }
 </style>

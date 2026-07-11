@@ -57,6 +57,13 @@ const commentSort = ref('default')
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '🔥', '👏']
 const commentReactions = ref({})
 const userReactions = ref({})
+
+// ===================== Feature: Comment quick emoji bar (快捷表情栏) =====================
+// A horizontal bar of 8 quick emojis above the comment input. Tapping one
+// appends it to the comment text. "😊更多" expands a second row of 16 more.
+const QUICK_EMOJIS = ['😂', '🔥', '❤️', '👍', '👏', '😍', '🎉', '💀']
+const MORE_EMOJIS = ['🤣', '😎', '🥳', '😭', '🤔', '😅', '🥰', '😋', '🤩', '🤯', '😱', '🙏', '💪', '✨', '💯', '🌹']
+const moreExpanded = ref(false)
 const dragging = ref(false)
 const startY = ref(0)
 // Video progress (时长进度条)
@@ -88,6 +95,12 @@ const sequentialPlay = ref(false) // 顺序播放 toggle — auto-advance on end
 // Cycles through 0.5x / 1.0x / 1.5x / 2.0x. Applied to the active video
 // element immediately on change and re-applied in playCurrent() so the
 // rate persists across slides.
+//
+// ===================== Feature: Video speed memory (播放速度记忆) =====================
+// The chosen speed is persisted to localStorage 'dy_playback_speed' and restored
+// on mount so the user's preference carries across sessions. On restore we apply
+// the rate to all videos and surface a brief "已恢复 X.X倍速" toast.
+const SPEED_KEY = 'dy_playback_speed'
 const SPEEDS = [0.5, 1.0, 1.5, 2.0]
 const playbackRate = ref(1.0)
 function cycleSpeed() {
@@ -97,6 +110,30 @@ function cycleSpeed() {
   const vids = document.querySelectorAll('.feed-video')
   const v = vids[index.value]
   if (v) v.playbackRate = playbackRate.value
+  // Feature: 播放速度记忆 — persist the new speed so it restores next session.
+  try {
+    localStorage.setItem(SPEED_KEY, String(playbackRate.value))
+  } catch (e) {
+    // localStorage may be unavailable — ignore.
+  }
+}
+
+// restorePlaybackSpeed reads the saved speed, applies it to every loaded video
+// element, and toasts the restored value. Called once on mount.
+function restorePlaybackSpeed() {
+  let saved = null
+  try {
+    saved = localStorage.getItem(SPEED_KEY)
+  } catch (e) {
+    saved = null
+  }
+  if (saved == null) return // nothing saved → keep the 1.0 default
+  const rate = parseFloat(saved)
+  if (isNaN(rate) || !SPEEDS.includes(rate)) return // invalid → ignore
+  playbackRate.value = rate
+  // Apply to all currently-rendered video elements.
+  document.querySelectorAll('.feed-video').forEach((v) => { v.playbackRate = rate })
+  showToast('已恢复 ' + rate.toFixed(1) + '倍速')
 }
 
 // ===================== Feature: Video wallpaper mode (视频壁纸模式) =====================
@@ -556,6 +593,8 @@ onMounted(() => startFollowCheck())
 onMounted(() => showSwipeGuide())
 // Restore the user's sound-effects preference on mount.
 onMounted(() => loadSoundPref())
+// Feature: 播放速度记忆 — restore the saved playback speed + toast on mount.
+onMounted(() => restorePlaybackSpeed())
 
 onUnmounted(() => {
   stopFollowCheck()
@@ -766,6 +805,10 @@ function startReply(c) {
     replyTo.value = c
     replyText.value = ''
   }
+}
+// Feature: 快捷表情栏 — append a tapped emoji to the comment text.
+function appendEmoji(emoji) {
+  commentText.value += emoji
 }
 async function sendComment() {
   if (!commentText.value.trim()) return
@@ -1642,6 +1685,28 @@ function clearDraft() {
           </div>
           <div v-if="!commentList.length" class="cp-empty">暂无评论，来说点什么吧</div>
         </div>
+        <!-- ===================== Feature: Comment quick emoji bar (快捷表情栏) =====================
+             A horizontal row of 8 quick emojis above the input. Tapping one appends
+             it to the comment text. "😊更多" expands a second row of 16 more emojis. -->
+        <div class="cp-emoji-bar">
+          <div class="cp-emoji-row">
+            <span
+              v-for="(e, ei) in QUICK_EMOJIS"
+              :key="'q' + ei"
+              class="cp-emoji-btn"
+              @click="appendEmoji(e)"
+            >{{ e }}</span>
+            <span class="cp-emoji-more" @click="moreExpanded = !moreExpanded">😊更多</span>
+          </div>
+          <div v-if="moreExpanded" class="cp-emoji-row cp-emoji-more-row">
+            <span
+              v-for="(e, ei) in MORE_EMOJIS"
+              :key="'m' + ei"
+              class="cp-emoji-btn"
+              @click="appendEmoji(e)"
+            >{{ e }}</span>
+          </div>
+        </div>
         <div class="cp-input">
           <div class="cp-input-field-wrap">
             <!-- Feature: 评论草稿自动保存 — "草稿" badge shown while a saved draft exists -->
@@ -1974,6 +2039,36 @@ function clearDraft() {
 .cp-empty { text-align: center; color: #666; padding: 40px; }
 .cp-input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #222; }
 .cp-field { background: #222; border-radius: 18px; }
+
+/* ===================== Feature: Comment quick emoji bar (快捷表情栏) ===================== */
+/* Horizontal strip of quick emojis shown above the input. */
+.cp-emoji-bar { border-top: 1px solid #222; background: #121212; }
+.cp-emoji-row { display: flex; align-items: center; gap: 4px; padding: 8px 10px; overflow-x: auto; scrollbar-width: none; }
+.cp-emoji-row::-webkit-scrollbar { display: none; }
+.cp-emoji-btn {
+  flex-shrink: 0;
+  font-size: 22px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, transform 0.1s;
+}
+.cp-emoji-btn:active { background: #2a2a2a; transform: scale(1.2); }
+.cp-emoji-more {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #fe2c55;
+  padding: 6px 10px;
+  border-radius: 14px;
+  background: rgba(254,44,85,0.12);
+  cursor: pointer;
+  white-space: nowrap;
+  margin-left: 2px;
+}
+.cp-emoji-more:active { background: rgba(254,44,85,0.3); }
+.cp-emoji-more-row { border-top: 1px solid #1c1c1c; }
 
 /* ===================== Feature: Comment emoji reactions (评论表情回应) ===================== */
 /* A horizontal row of emoji buttons below each comment. The active emoji is
