@@ -91,6 +91,35 @@ const quality = ref('sd')
 const showPlaylist = ref(false) // popup visibility
 const sequentialPlay = ref(false) // 顺序播放 toggle — auto-advance on end
 
+// ===================== Feature: Video playback loop mode (视频循环播放模式) =====================
+// A 🔁 toggle next to the speed/quality buttons. When ON the current video
+// loops continuously (video.loop = true) regardless of the sequential-play
+// setting, and a "单曲循环" badge is shown. When OFF the existing behavior is
+// preserved (loop by default, or auto-advance when sequential play is on).
+// The preference persists in localStorage 'dy_loop_mode'.
+const LOOP_KEY = 'dy_loop_mode'
+const loopMode = ref(false)
+function loadLoopPref() {
+  try {
+    loopMode.value = localStorage.getItem(LOOP_KEY) === '1'
+  } catch (e) {
+    loopMode.value = false
+  }
+}
+function toggleLoop() {
+  loopMode.value = !loopMode.value
+  try {
+    localStorage.setItem(LOOP_KEY, loopMode.value ? '1' : '0')
+  } catch (e) {
+    // localStorage may be unavailable — ignore.
+  }
+  // Re-apply the looping state to the active video immediately so the toggle
+  // takes effect without needing to re-slide.
+  const vids = document.querySelectorAll('.feed-video')
+  const v = vids[index.value]
+  if (v) v.loop = loopMode.value || !sequentialPlay.value
+}
+
 // ---- Feature 4: Playback speed (视频慢放/倍速) ----
 // Cycles through 0.5x / 1.0x / 1.5x / 2.0x. Applied to the active video
 // element immediately on change and re-applied in playCurrent() so the
@@ -595,6 +624,8 @@ onMounted(() => showSwipeGuide())
 onMounted(() => loadSoundPref())
 // Feature: 播放速度记忆 — restore the saved playback speed + toast on mount.
 onMounted(() => restorePlaybackSpeed())
+// Feature: 视频循环播放模式 — restore the saved loop-mode preference on mount.
+onMounted(() => loadLoopPref())
 // Feature: 策展模式 — restore the saved curator-mode preference on mount.
 onMounted(() => loadCuratorPref())
 // Feature: 评论时间戳 — refresh relative times every minute.
@@ -659,7 +690,9 @@ function playCurrent() {
       // Feature: 顺序播放 — disable native looping so the 'ended' event fires
       // and we can auto-advance. Re-enable looping when sequential play is off
       // so the active video keeps looping as before.
-      v.loop = !sequentialPlay.value
+      // Feature: 视频循环播放模式 (loop mode) — when ON, force looping and
+      // suppress auto-advance so the current video plays on repeat.
+      v.loop = loopMode.value || !sequentialPlay.value
       v.play().catch(() => {})
       // Feature 4: re-apply the selected playback rate so it persists
       // across slides / after the element is re-rendered.
@@ -677,7 +710,9 @@ function playCurrent() {
         // sequential play is active so 'ended' actually fires.
         v.onended = () => {
           reportPlay(vid.id, 1.0)
-          if (sequentialPlay.value) {
+          // Feature: 视频循环播放模式 — never auto-advance while loop mode is on
+          // (the video keeps replaying via video.loop = true).
+          if (!loopMode.value && sequentialPlay.value) {
             // Advance to the next video if one is available.
             if (index.value < videos.value.length - 1) {
               index.value++
@@ -1524,6 +1559,16 @@ function relTime(createdAt) {
         <div v-if="i === index && playbackRate !== 1.0 && !wallpaperMode" class="speed-badge">
           {{ playbackRate }}x
         </div>
+        <!-- ===================== Feature: 视频循环播放模式 (loop mode) =====================
+             🔁 toggle next to the speed/quality buttons. When ON the current video
+             loops continuously; a "单曲循环" badge confirms the active state. -->
+        <div
+          v-if="i === index && !wallpaperMode"
+          class="loop-toggle"
+          :class="{ on: loopMode }"
+          @click.stop="toggleLoop"
+        >🔁</div>
+        <div v-if="i === index && loopMode && !wallpaperMode" class="loop-badge">单曲循环</div>
         <!-- ===================== Feature: 策展模式 (curator mode) per-slide overlay =====================
              Shown on the active slide while curator mode is on: a "推荐" badge with the
              quality score in the top-left, a golden border frame for high-quality
@@ -2255,6 +2300,48 @@ function relTime(createdAt) {
   animation: speedBadgeIn 0.2s ease-out;
 }
 @keyframes speedBadgeIn { from { opacity: 0; transform: translate(-50%, -50%) scale(0.8); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+
+/* ===================== Feature: 视频循环播放模式 (loop mode) styles =====================
+   🔁 toggle button, positioned just below the speed toggle. Turns themed-red
+   while active. The "单曲循环" badge floats beside it as confirmation. */
+.loop-toggle {
+  position: absolute;
+  top: 116px;
+  right: 14px;
+  z-index: 12;
+  padding: 4px 10px;
+  font-size: 14px;
+  line-height: 1;
+  color: #fff;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid rgba(255,255,255,0.35);
+  border-radius: 12px;
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.loop-toggle.on {
+  background: rgba(254,44,85,0.85);
+  border-color: #fe2c55;
+  box-shadow: 0 0 10px rgba(254,44,85,0.5);
+}
+.loop-toggle:active { background: rgba(254,44,85,0.7); }
+.loop-badge {
+  position: absolute;
+  top: 116px;
+  right: 52px;
+  z-index: 12;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(254,44,85,0.9);
+  border-radius: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(254,44,85,0.4);
+}
 
 /* ===================== Feature: Auto-pause on scroll away (滑出自动暂停) =====================
    Centered overlay shown on the active slide after returning from a hidden tab.

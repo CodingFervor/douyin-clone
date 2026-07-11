@@ -178,6 +178,8 @@ onUnmounted(() => {
   if (changeClassTimer) clearTimeout(changeClassTimer)
   // Feature: 直播间热度计 — clear the 10s refresh timer.
   if (heatTimer) { clearInterval(heatTimer); heatTimer = null }
+  // Feature: 直播间网络质量 — clear the tooltip auto-hide timer.
+  if (qualityTipTimer) { clearTimeout(qualityTipTimer); qualityTipTimer = null }
 })
 
 async function pollMessages() {
@@ -781,6 +783,46 @@ function heatFillPct() {
   const pct = Math.round((Math.log1p(v) / Math.log1p(12000)) * 100)
   return Math.max(4, Math.min(100, pct))
 }
+
+// ===================== Feature: Live room connection quality (直播间网络质量) =====================
+// A signal-bars icon (4 bars) in the top-right corner. The quality level is
+// derived deterministically from a hash of the room id, so the same room always
+// shows the same quality:
+//   bars 4 → excellent → green   → "网络极佳 4G"
+//   bars 3 → good      → light-green → "网络良好"
+//   bars 2 → fair      → orange  → "网络一般"
+//   bars 1 → poor      → red     → "网络较差"
+// Tapping the icon surfaces the matching tooltip text.
+const showQualityTip = ref(false)
+let qualityTipTimer = null
+
+// hashRoomId turns the room id string into a small non-negative integer. Used so
+// the quality is deterministic per room rather than random per visit.
+function hashRoomId(id) {
+  const s = String(id == null ? '' : id)
+  let h = 0
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) >>> 0
+  }
+  return h
+}
+
+// qualityInfo derives { bars, color, tip } deterministically from the room id.
+function qualityInfo() {
+  const id = route.params.id
+  const level = (hashRoomId(id) % 4) + 1 // 1..4
+  if (level >= 4) return { bars: 4, color: '#34c759', tip: '网络极佳 4G' }       // green
+  if (level === 3) return { bars: 3, color: '#8ed98e', tip: '网络良好' }          // light-green
+  if (level === 2) return { bars: 2, color: '#ff9500', tip: '网络一般' }          // orange
+  return { bars: 1, color: '#ff3b30', tip: '网络较差' }                            // red
+}
+
+// tapQuality shows the tooltip text for ~2s, then hides it.
+function tapQuality() {
+  showQualityTip.value = true
+  if (qualityTipTimer) clearTimeout(qualityTipTimer)
+  qualityTipTimer = setTimeout(() => { showQualityTip.value = false }, 2000)
+}
 </script>
 
 <template>
@@ -804,6 +846,24 @@ function heatFillPct() {
         <van-icon name="arrow-down" size="12" color="rgba(255,255,255,0.7)" class="host-arrow" />
       </div>
       <van-button size="mini" round :color="isGuarding ? '#9c27b0' : '#333'" @click="doGuard">{{ isGuarding ? '已守护' : '守护' }}</van-button>
+    </div>
+
+    <!-- ===================== Feature: 直播间网络质量 (connection quality) =====================
+         A 4-bar signal icon in the top-right corner. The level + color is derived
+         deterministically from the room id hash; tapping it shows a tooltip. -->
+    <div class="signal-wrap" @click="tapQuality">
+      <div class="signal-bars" :title="qualityInfo().tip">
+        <span
+          v-for="b in 4"
+          :key="b"
+          class="signal-bar"
+          :class="{ off: b > qualityInfo().bars, anim: b <= qualityInfo().bars }"
+          :style="b <= qualityInfo().bars ? { '--bar-i': b, background: qualityInfo().color, animationDelay: (b * 0.15) + 's' } : {}"
+        ></span>
+      </div>
+      <transition name="quality-tip">
+        <span v-if="showQualityTip" class="signal-tip">{{ qualityInfo().tip }}</span>
+      </transition>
     </div>
 
     <!-- Title -->
@@ -1304,6 +1364,61 @@ function heatFillPct() {
 .host-avatar { width: 36px; height: 36px; border-radius: 50%; border: 2px solid #fe2c55; }
 .host-name { color: #fff; font-size: 14px; font-weight: bold; }
 .host-viewers { color: rgba(255,255,255,0.7); font-size: 11px; }
+
+/* ===================== Feature: 直播间网络质量 (connection quality) =====================
+   A 4-bar signal icon fixed in the top-right corner. Each lit bar is colored by
+   the quality tier (green/light-green/orange/red) and gently oscillates in
+   height. Tapping the icon reveals a tooltip with the textual quality. */
+.signal-wrap {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.35);
+  backdrop-filter: blur(4px);
+}
+.signal-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 16px;
+}
+.signal-bar {
+  width: 3px;
+  background: rgba(255,255,255,0.3);
+  border-radius: 1.5px;
+  /* bar heights: 1=shortest, 4=tallest */
+  height: calc(var(--bar-h, 4px));
+}
+/* Off bars render at a minimal height with the muted color. */
+.signal-bar.off { --bar-h: 4px; }
+.signal-bar.anim { animation: signalOsc 1.2s ease-in-out infinite; }
+/* Per-bar base heights via nth-child so the staircase shape is preserved. */
+.signal-bar:nth-child(1) { --bar-h: 5px; }
+.signal-bar:nth-child(2) { --bar-h: 8px; }
+.signal-bar:nth-child(3) { --bar-h: 12px; }
+.signal-bar:nth-child(4) { --bar-h: 16px; }
+@keyframes signalOsc {
+  0%, 100% { transform: scaleY(1); }
+  50%      { transform: scaleY(0.6); }
+}
+/* Tooltip text — appears on tap, fades in/out. */
+.signal-tip {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+}
+.quality-tip-enter-active, .quality-tip-leave-active { transition: opacity 0.2s; }
+.quality-tip-enter-from, .quality-tip-leave-to { opacity: 0; }
 .room-title { position: absolute; top: 70px; left: 16px; right: 60px; color: #fff; font-size: 15px; font-weight: bold; text-shadow: 0 1px 3px rgba(0,0,0,0.5); z-index: 10; }
 .pk-start { position: absolute; top: 100px; left: 16px; z-index: 10; background: rgba(254,44,85,0.8); color: #fff; font-size: 12px; padding: 4px 12px; border-radius: 12px; }
 .pk-banner { position: absolute; top: 100px; left: 12px; right: 12px; z-index: 10; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.6); border-radius: 20px; padding: 6px 12px; }

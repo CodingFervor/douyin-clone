@@ -125,6 +125,17 @@ function fmtCount(n) {
   return String(n)
 }
 
+// ===================== Feature: Discover trending topics pulse (发现页话题脉冲) =====================
+// Hashtag chips with uses > 5 are "trending" and get an expanding pulse ring
+// around them; chips with uses > 20 additionally get a "🔥HOT" micro-badge.
+// The pulse animation delays are staggered per-chip so the rings don't all
+// fire at once.
+function isTrending(t) { return (t.uses || 0) > 5 }
+function isHot(t) { return (t.uses || 0) > 20 }
+// pulseDelay returns a staggered animation-delay (in seconds) for a chip,
+// based on its index, so the pulses ripple out rather than firing together.
+function pulseDelay(i) { return (i % 6) * 0.35 + 's' }
+
 // ===================== Feature: Discover daily pick (发现页每日精选) =====================
 // A curated "💎 每日精选" section at the top of Discover. Three picks are chosen
 // deterministically from the loaded feed based on a hash of today's date string,
@@ -249,9 +260,23 @@ const dailyPicks = computed(() => {
     <div v-if="tags.length" class="hot-search">
       <div class="hs-head"># 热门话题</div>
       <div class="tag-chips">
-        <van-tag v-for="t in tags.slice(0, 12)" :key="t.id" round plain color="#fe2c55" size="medium" @click="router.push('/tag/' + t.name)">
-          #{{ t.name }} <small>{{ fmtCount(t.uses) }}</small>
-        </van-tag>
+        <!-- ===================== Feature: 发现页话题脉冲 (trending topics pulse) =====================
+             Each trending chip (uses > 5) gets an expanding pulse ring; chips with
+             uses > 20 also get a "🔥HOT" micro-badge. Pulse delays are staggered. -->
+        <span
+          v-for="(t, i) in tags.slice(0, 12)"
+          :key="t.id"
+          class="trend-chip"
+          :class="{ trending: isTrending(t) }"
+          :style="isTrending(t) ? { '--pulse-delay': pulseDelay(i) } : {}"
+          @click="router.push('/tag/' + t.name)"
+        >
+          <span v-if="isTrending(t)" class="trend-pulse"></span>
+          <van-tag round plain color="#fe2c55" size="medium">
+            #{{ t.name }} <small>{{ fmtCount(t.uses) }}</small>
+          </van-tag>
+          <span v-if="isHot(t)" class="trend-hot-badge">🔥HOT</span>
+        </span>
       </div>
     </div>
     <!-- Hot music entry -->
@@ -368,6 +393,55 @@ const dailyPicks = computed(() => {
 .hs-count { color: #666; font-size: 11px; }
 .tag-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .tag-chips small { color: #666; font-size: 10px; }
+/* ===================== Feature: 发现页话题脉冲 (trending topics pulse) =====================
+   Each trending chip (uses > 5) gets an expanding pulse ring (a ::ring element
+   that scales + fades on a loop). Chips with uses > 20 also show a "🔥HOT"
+   micro-badge in the top-right. Pulse animation delays are staggered per-chip. */
+.trend-chip {
+  position: relative;
+  display: inline-flex;
+  cursor: pointer;
+}
+/* The expanding ring — absolutely positioned, centered behind the tag. */
+.trend-pulse {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px; /* matches the round tag shape */
+  border: 2px solid #fe2c55;
+  transform: translate(-50%, -50%) scale(1);
+  pointer-events: none;
+  opacity: 0;
+  animation: trendPulse 1.8s ease-out infinite;
+  animation-delay: var(--pulse-delay, 0s);
+  z-index: 0;
+}
+@keyframes trendPulse {
+  0%   { transform: translate(-50%, -50%) scale(1);   opacity: 0.7; }
+  70%  { transform: translate(-50%, -50%) scale(1.45); opacity: 0; }
+  100% { transform: translate(-50%, -50%) scale(1.45); opacity: 0; }
+}
+/* Keep the van-tag above the ring. */
+.trend-chip :deep(.van-tag) { position: relative; z-index: 1; }
+/* "🔥HOT" micro-badge for the hottest chips (uses > 20). */
+.trend-hot-badge {
+  position: absolute;
+  top: -8px;
+  right: -10px;
+  z-index: 2;
+  font-size: 9px;
+  font-weight: bold;
+  color: #fff;
+  background: linear-gradient(90deg, #fe2c55, #ff6b9d);
+  padding: 1px 5px;
+  border-radius: 8px;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(254,44,85,0.6);
+  pointer-events: none;
+  line-height: 12px;
+}
 .suggest-list { margin-top: 8px; }
 .su-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
 .su-avatar { width: 40px; height: 40px; border-radius: 50%; }
