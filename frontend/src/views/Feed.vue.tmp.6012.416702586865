@@ -1936,6 +1936,14 @@ function relTime(createdAt) {
                   <span v-if="commentReactions[c.id] && commentReactions[c.id][emoji]" class="cp-rx-count">{{ commentReactions[c.id][emoji] }}</span>
                 </span>
               </div>
+              <!-- ===================== Feature: Comment poll voting (评论投票) =====================
+                   Upvote / downvote buttons, separate from emoji reactions. Only one
+                   vote per comment at a time; the score = upvotes - downvotes. -->
+              <div class="cp-vote">
+                <span class="cp-vote-btn up" :class="{ active: userVote[c.id] === 'up' }" @click="voteUp(c)">👍</span>
+                <span class="cp-vote-score" :class="{ neg: voteScore(c) < 0 }">{{ voteScore(c) }}</span>
+                <span class="cp-vote-btn down" :class="{ active: userVote[c.id] === 'down' }" @click="voteDown(c)">👎</span>
+              </div>
             </div>
             <div class="cp-like" :class="{ active: c.liked }" @click="doCommentLike(c)">
               <van-icon :name="c.liked ? 'like' : 'like-o'" size="16" :color="c.liked ? '#fe2c55' : '#999'" /><span>{{ c.likes }}</span>
