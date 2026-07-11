@@ -157,6 +157,8 @@ onMounted(async () => {
   restoreBgm()
   // Feature: 直播间幸运数字 — load today's lucky points on mount.
   loadLuckyPoints()
+  // Feature: 直播间幸运转盘 — load accumulated wheel points on mount.
+  loadWheelPoints()
   // Feature: 主播开播提醒 — load the armed state + next schedule on mount.
   loadReminder()
   loadSchedules()
@@ -174,6 +176,8 @@ onUnmounted(() => {
   // Clean up dice game timers to avoid leaks when leaving the room.
   if (diceSpinTimer) clearInterval(diceSpinTimer)
   if (diceStopTimer) clearTimeout(diceStopTimer)
+  // Feature: 直播间幸运转盘 — clear the spin completion timer.
+  if (wheelStopTimer) { clearTimeout(wheelStopTimer); wheelStopTimer = null }
   // Feature: 排行榜更新动画 — clear the flash-class reset timer.
   if (changeClassTimer) clearTimeout(changeClassTimer)
   // Feature: 直播间热度计 — clear the 10s refresh timer.
@@ -542,7 +546,165 @@ function triggerLuckyExplosion() {
   }
 }
 
-// ===================== Feature: Live viewer list (直播间观众列表) =====================
+// ===================== Feature: 直播间幸运转盘 (lucky wheel mini-game) =====================
+// A spinning 8-segment wheel. One free spin per live room visit is granted
+// (tracked in localStorage keyed by room ID). Spinning animates a CSS rotate
+// for 3s with an ease-out curve, lands on a random segment, and shows either a
+// confetti burst (for prize segments) or a plain toast (for 谢谢参与). Prize
+// points accumulate into localStorage 'dy_wheel_points'.
+const WHEEL_KEY = 'dy_wheel_points'         // total accumulated wheel points
+const WHEEL_SPUN_PREFIX = 'dy_wheel_spun_'  // + roomId → '1' once the free spin is used
+const WHEEL_PRIZES = [
+  { label: '积分x10',  color: '#fe2c55', points: 10,  kind: 'points' },
+  { label: '红包',     color: '#ff6b9d', points: 5,   kind: 'prize'  },
+  { label: '积分x20',  color: '#25f4ee', points: 20,  kind: 'points' },
+  { label: '谢谢参与', color: '#888888', points: 0,   kind: 'none'   },
+  { label: '积分x50',  color: '#fe2c55', points: 50,  kind: 'points' },
+  { label: '铁粉+1',   color: '#ff6b9d', points: 8,   kind: 'prize'  },
+  { label: '守护徽章', color: '#25f4ee', points: 15,  kind: 'prize'  },
+  { label: '再转一次', color: '#ffb400', points: 0,   kind: 'respin' },
+]
+const showWheel = ref(false)             // popup visibility
+const wheelSpinning = ref(false)         // true while a spin is animating
+const wheelRotation = ref(0)             // cumulative degrees applied to the wheel
+const wheelPoints = ref(0)               // total points accumulated from the wheel
+const wheelConfetti = ref([])            // active confetti particles [{id}]
+let wheelConfettiSeq = 0
+let wheelStopTimer = null
+
+// The 8 segments are 45° each. To draw them we expose each prize as a slice
+// with its angular bounds so the template can build conic-gradient stops.
+const wheelSlices = computed(() => {
+  return WHEEL_PRIZES.map((p, i) => ({
+    ...p,
+    start: i * 45,
+    end: (i + 1) * 45,
+    mid: i * 45 + 22.5,
+  }))
+})
+// conicGradient builds the wheel face as a single conic-gradient string.
+const conicGradient = computed(() => {
+  const stops = wheelSlices.value.map((s) => `${s.color} ${s.start}deg ${s.end}deg`)
+  return `conic-gradient(${stops.join(', ')})`
+})
+
+// loadWheelPoints restores the accumulated wheel total from localStorage.
+function loadWheelPoints() {
+  try {
+    wheelPoints.value = parseInt(localStorage.getItem(WHEEL_KEY) || '0', 10) || 0
+  } catch (e) {
+    wheelPoints.value = 0
+  }
+}
+// saveWheelPoints persists the running total.
+function saveWheelPoints() {
+  try {
+    localStorage.setItem(WHEEL_KEY, String(wheelPoints.value))
+  } catch (e) {
+    // localStorage may be unavailable — ignore.
+  }
+}
+// hasFreeSpin returns true until the user has used their one free spin for the
+// current room visit. The flag is keyed by room ID so each room grants one spin.
+function hasFreeSpin() {
+  try {
+    return localStorage.getItem(WHEEL_SPUN_PREFIX + route.params.id) !== '1'
+  } catch (e) {
+    return true
+  }
+}
+function markSpun() {
+  try {
+    localStorage.setItem(WHEEL_SPUN_PREFIX + route.params.id, '1')
+  } catch (e) {
+    // ignore
+  }
+}
+
+// spinWheel performs a spin: picks a random segment, rotates the wheel so the
+// pointer (at the top, 0°) lands within that segment, animates over 3s with an
+// ease-out curve, then resolves the prize. "再转一次" refunds the free spin.
+function spinWheel() {
+  if (wheelSpinning.value) return
+  if (!hasFreeSpin()) {
+    showToast('本次直播免费转盘已用完')
+    return
+  }
+  markSpun()
+  wheelSpinning.value = true
+  // Pick the winning segment, then aim the wheel so that segment's center lands
+  // under the pointer at 0° (top). Add a little random jitter within the slice
+  // so the pointer doesn't always sit dead-center.
+  const segIndex = Math.floor(Math.random() * WHEEL_PRIZES.length)
+  const seg = WHEEL_PRIZES[segIndex]
+  const sliceWidth = 360 / WHEEL_PRIZES.length
+  const jitter = (Math.random() - 0.5) * (sliceWidth - 8)
+  const targetWithinSlice = segIndex * sliceWidth + sliceWidth / 2 + jitter
+  // The pointer is at 0° (top). To bring the chosen slice center to the top we
+  // rotate the wheel by -targetWithinSlice (mod 360). Add at least 5 full turns
+  // so the spin feels substantial, and always rotate forward (cumulative).
+  const fullTurns = 5 + Math.floor(Math.random() * 3) // 5–7 turns
+  const current = wheelRotation.value
+  // Normalize current rotation to its 0–360 remainder so the delta math stays
+  // bounded, then add the full turns + the offset to reach the target slice.
+  const currentMod = ((current % 360) + 360) % 360
+  let desiredMod = (360 - targetWithinSlice) % 360
+  if (desiredMod < 0) desiredMod += 360
+  let delta = desiredMod - currentMod
+  if (delta <= 0) delta += 360
+  wheelRotation.value = current + fullTurns * 360 + delta
+
+  if (wheelStopTimer) clearTimeout(wheelStopTimer)
+  wheelStopTimer = setTimeout(() => {
+    wheelSpinning.value = false
+    resolveWheelPrize(seg)
+  }, 3000)
+}
+
+// resolveWheelPrize surfaces the result. Prize/points segments fire a confetti
+// burst and add points; 谢谢参与 shows a plain toast; 再转一次 refunds the free
+// spin so the user can spin again.
+function resolveWheelPrize(seg) {
+  if (seg.kind === 'none') {
+    showToast('谢谢参与，下次加油！')
+    return
+  }
+  if (seg.kind === 'respin') {
+    // Refund the free spin so the user gets another go.
+    try { localStorage.removeItem(WHEEL_SPUN_PREFIX + route.params.id) } catch (e) {}
+    triggerWheelConfetti()
+    showToast('🎁 再转一次！可免费再玩一次')
+    return
+  }
+  // Points / prize segment.
+  wheelPoints.value += seg.points
+  saveWheelPoints()
+  triggerWheelConfetti()
+  showSuccessToast(`🎉 恭喜中奖：${seg.label}（+${seg.points}积分）`)
+}
+
+// triggerWheelConfetti spawns a burst of colored particles that animate outward
+// from the wheel center, each auto-removed after the animation finishes.
+function triggerWheelConfetti() {
+  const colors = ['#fe2c55', '#ff6b9d', '#25f4ee', '#ffb400', '#ffd700', '#ffffff']
+  for (let i = 0; i < 36; i++) {
+    const id = ++wheelConfettiSeq
+    wheelConfetti.value.push({
+      id,
+      x: 50 + (Math.random() - 0.5) * 20,
+      y: 45 + (Math.random() - 0.5) * 20,
+      angle: Math.random() * Math.PI * 2,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      size: 6 + Math.random() * 6,
+      delay: Math.random() * 0.15,
+    })
+    setTimeout(() => {
+      wheelConfetti.value = wheelConfetti.value.filter((p) => p.id !== id)
+    }, 1400)
+  }
+}
+
+
 // There is no dedicated viewer API, so we compose the list from:
 //   1. recent contributors (already loaded — treated as "recent viewers")
 //   2. suggested-follow users fetched lazily on first open ("also watching")
@@ -916,6 +1078,9 @@ function tapQuality() {
     <!-- ===================== Feature: Live room lucky number (直播间幸运数字) entry ===================== -->
     <div class="lucky-entry" @click="showLucky = true">🔮 幸运数字</div>
 
+    <!-- ===================== Feature: 直播间幸运转盘 (lucky wheel) entry ===================== -->
+    <div class="wheel-entry" @click="showWheel = true">🎡 幸运转盘</div>
+
     <!-- ===================== Feature: 直播间主题装扮 (theme picker) ===================== -->
     <div class="theme-entry" @click="showTheme = true">
       <span class="theme-swatch" :style="{ background: themeAccent }"></span>
@@ -1261,6 +1426,68 @@ function tapQuality() {
           <div class="lr-msg" :class="{ hit: luckyResult.hit }">{{ luckyResult.msg }}</div>
           <van-button block round :color="themeAccent" class="lr-again-btn" @click="resetLuckyRound">再来一次</van-button>
         </div>
+      </div>
+    </van-popup>
+
+    <!-- ===================== Feature: 直播间幸运转盘 (lucky wheel) popup =====================
+         An 8-segment conic-gradient wheel. One free spin per room visit; spinning
+         animates a 3s ease-out rotate to a random segment. Prizes fire confetti;
+         谢谢参与 shows a plain toast; 再转一次 refunds the free spin. -->
+    <van-popup v-model:show="showWheel" position="bottom" round :style="{ height: '62%' }">
+      <div class="wheel-panel">
+        <div class="wheel-head">🎡 幸运转盘</div>
+        <div class="wheel-sub">每次直播 1 次免费机会 · 累计积分 <span>{{ wheelPoints }}</span></div>
+
+        <div class="wheel-stage">
+          <!-- Pointer fixed at the top (12 o'clock). -->
+          <div class="wheel-pointer">▼</div>
+          <!-- The wheel itself. transition handles the 3s ease-out spin. -->
+          <div
+            class="wheel-disc"
+            :class="{ spinning: wheelSpinning }"
+            :style="{
+              background: conicGradient,
+              transform: `rotate(${wheelRotation}deg)`,
+              transition: wheelSpinning ? 'transform 3s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
+            }"
+          >
+            <!-- Segment labels positioned around the disc. -->
+            <span
+              v-for="(s, i) in wheelSlices"
+              :key="i"
+              class="wheel-seg-label"
+              :style="{ transform: `rotate(${s.mid}deg) translateY(-78px)` }"
+            >{{ s.label }}</span>
+          </div>
+          <!-- Confetti layer overlays the wheel during a prize burst. -->
+          <div class="wheel-confetti-layer">
+            <span
+              v-for="p in wheelConfetti"
+              :key="p.id"
+              class="wheel-confetti"
+              :style="{
+                left: p.x + '%',
+                top: p.y + '%',
+                background: p.color,
+                width: p.size + 'px',
+                height: p.size + 'px',
+                '--angle': p.angle + 'rad',
+                animationDelay: p.delay + 's',
+              }"
+            ></span>
+          </div>
+        </div>
+
+        <van-button
+          block
+          round
+          :color="themeAccent"
+          :loading="wheelSpinning"
+          :disabled="!hasFreeSpin()"
+          class="wheel-spin-btn"
+          @click="spinWheel"
+        >{{ wheelSpinning ? '转动中…' : (hasFreeSpin() ? '🎡 免费转一次' : '本次机会已用完') }}</van-button>
+        <div class="wheel-hint">中奖积分已累计到本地（dy_wheel_points）</div>
       </div>
     </van-popup>
 
@@ -1782,6 +2009,114 @@ function tapQuality() {
   box-shadow: 0 2px 8px rgba(255,215,0,0.4);
 }
 .lucky-entry:active { transform: scale(0.95); }
+
+/* ===================== Feature: 直播间幸运转盘 (lucky wheel) =====================
+   Entry button — sits just below the lucky-number entry, purple-toned to match
+   the wheel-of-fortune theme. */
+.wheel-entry {
+  position: absolute;
+  top: 292px;
+  right: 16px;
+  z-index: 10;
+  background: linear-gradient(135deg, rgba(149, 90, 255, 0.95), rgba(254, 44, 85, 0.95));
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(149, 90, 255, 0.45);
+}
+.wheel-entry:active { transform: scale(0.95); }
+/* Popup panel */
+.wheel-panel {
+  position: relative;
+  background: #161616;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 16px;
+  gap: 6px;
+  overflow: hidden;
+}
+.wheel-head { color: #fff; font-size: 17px; font-weight: bold; }
+.wheel-sub { color: #888; font-size: 12px; margin-bottom: 8px; }
+.wheel-sub span { color: #ffd700; font-weight: bold; }
+/* The wheel stage holds the pointer, the disc, and the confetti overlay. */
+.wheel-stage {
+  position: relative;
+  width: 240px;
+  height: 240px;
+  margin: 14px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Fixed pointer at the top (12 o'clock). */
+.wheel-pointer {
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  color: #fff;
+  font-size: 24px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7));
+  pointer-events: none;
+}
+/* The spinning disc. Its background is a conic-gradient built from the prizes;
+   its rotation is bound to wheelRotation and eased via the inline transition. */
+.wheel-disc {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  border: 6px solid #fff;
+  box-shadow: 0 0 24px rgba(254, 44, 85, 0.5);
+}
+.wheel-disc.spinning { /* rotation handled inline via transform + transition */ }
+/* Segment labels arranged around the disc. Each is rotated to its slice's
+   midpoint then pushed outward toward the rim. */
+.wheel-seg-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 70px;
+  margin-left: -35px;
+  margin-top: -8px;
+  text-align: center;
+  color: #fff;
+  font-size: 10px;
+  font-weight: bold;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  transform-origin: center;
+}
+/* Confetti layer overlays the stage during a prize burst. */
+.wheel-confetti-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+.wheel-confetti {
+  position: absolute;
+  border-radius: 2px;
+  opacity: 0;
+  animation: wheelConfettiBurst 1.3s ease-out forwards;
+}
+@keyframes wheelConfettiBurst {
+  0%   { opacity: 1; transform: translate(0, 0) rotate(0deg) scale(1); }
+  100% {
+    opacity: 0;
+    /* Travel outward along the precomputed angle. */
+    transform: translate(calc(cos(var(--angle)) * 110px), calc(sin(var(--angle)) * 110px + 40px)) rotate(540deg) scale(0.4);
+  }
+}
+.wheel-spin-btn { margin-top: 10px; }
+.wheel-hint { color: #555; font-size: 11px; margin-top: 6px; }
 /* Popup panel */
 .lucky-panel {
   position: relative;

@@ -14,6 +14,37 @@ const hotList = ref([])
 const tags = ref([])
 const suggestUsers = ref([])
 
+// ===================== Feature: Discover smart time greeting (发现页智能问候) =====================
+// A time-aware banner at the top of Discover. The greeting, emoji and gradient
+// background all change with the time of day, and re-evaluate every minute so
+// the banner stays correct if the page is left open across a time boundary.
+// The greeting bucket is keyed off the current hour:
+//   6–11   → morning    ☀️ 早上好！看看今天有什么新鲜事
+//   11–14  → noon       🍽 午间休息，刷会儿视频吧
+//   14–18  → afternoon  💪 下午茶时间，来点有趣的
+//   18–22  → evening    🌆 晚上好！今天过得怎么样？
+//   22–6   → night      🌙 夜深了，注意休息哦
+const GREETINGS = {
+  morning:   { emoji: '☀️', text: '早上好！看看今天有什么新鲜事',  gradient: 'linear-gradient(135deg, #ff9a56, #ff6a88)' },
+  noon:      { emoji: '🍽️', text: '午间休息，刷会儿视频吧',        gradient: 'linear-gradient(135deg, #ffb347, #ffcc33)' },
+  afternoon: { emoji: '💪', text: '下午茶时间，来点有趣的',          gradient: 'linear-gradient(135deg, #fe2c55, #ff8a5c)' },
+  evening:   { emoji: '🌆', text: '晚上好！今天过得怎么样？',        gradient: 'linear-gradient(135deg, #6a3093, #a044ff)' },
+  night:     { emoji: '🌙', text: '夜深了，注意休息哦',              gradient: 'linear-gradient(135deg, #1a2a6c, #3a6073)' },
+}
+// greetingBucket derives the current time bucket from the hour of day.
+function greetingBucket(d) {
+  const h = d.getHours()
+  if (h >= 6 && h < 11) return 'morning'
+  if (h >= 11 && h < 14) return 'noon'
+  if (h >= 14 && h < 18) return 'afternoon'
+  if (h >= 18 && h < 22) return 'evening'
+  return 'night'
+}
+const now = ref(new Date())
+const greetingKey = computed(() => greetingBucket(now.value))
+const greeting = computed(() => GREETINGS[greetingKey.value])
+let greetingTimer = null
+
 // ===================== Feature: 热门话题 rotating banner =====================
 // A set of hot hashtags that rotate automatically every 3 seconds. The banner
 // shows one hashtag at a time with a slide animation; tapping it searches.
@@ -53,6 +84,9 @@ watch(tags, (data) => {
 
 onMounted(async () => {
   startBanner()
+  // Feature: 发现页智能问候 — re-evaluate the greeting every minute so the
+  // banner updates if the page is left open across a time-of-day boundary.
+  greetingTimer = setInterval(() => { now.value = new Date() }, 60000)
   try {
     const data = await getFeed(30)
     allVideos.value = data
@@ -68,7 +102,11 @@ onMounted(async () => {
   getSuggestFollows().then((data) => { suggestUsers.value = data || [] }).catch(() => {})
 })
 
-onUnmounted(stopBanner)
+onUnmounted(() => {
+  stopBanner()
+  // Feature: 发现页智能问候 — clear the per-minute refresh timer.
+  if (greetingTimer) { clearInterval(greetingTimer); greetingTimer = null }
+})
 
 // ===================== Feature: 排行榜 quick links =====================
 // Three ranking shortcuts that route to existing pages.

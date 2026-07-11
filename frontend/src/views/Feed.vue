@@ -1936,6 +1936,14 @@ function relTime(createdAt) {
                   <span v-if="commentReactions[c.id] && commentReactions[c.id][emoji]" class="cp-rx-count">{{ commentReactions[c.id][emoji] }}</span>
                 </span>
               </div>
+              <!-- ===================== Feature: Comment poll voting (评论投票) =====================
+                   Upvote / downvote buttons, separate from emoji reactions. Only one
+                   vote per comment at a time; the score = upvotes - downvotes. -->
+              <div class="cp-vote">
+                <span class="cp-vote-btn up" :class="{ active: userVote[c.id] === 'up' }" @click="voteUp(c)">👍</span>
+                <span class="cp-vote-score" :class="{ neg: voteScore(c) < 0 }">{{ voteScore(c) }}</span>
+                <span class="cp-vote-btn down" :class="{ active: userVote[c.id] === 'down' }" @click="voteDown(c)">👎</span>
+              </div>
             </div>
             <div class="cp-like" :class="{ active: c.liked }" @click="doCommentLike(c)">
               <van-icon :name="c.liked ? 'like' : 'like-o'" size="16" :color="c.liked ? '#fe2c55' : '#999'" /><span>{{ c.likes }}</span>
@@ -2409,6 +2417,38 @@ function relTime(createdAt) {
 .cp-rx-btn.active { background: rgba(254,44,85,0.18); border-color: #fe2c55; }
 .cp-rx-emoji { line-height: 1; }
 .cp-rx-count { color: #fe2c55; font-size: 11px; font-weight: bold; }
+
+/* ===================== Feature: Comment poll voting (评论投票) =====================
+   A compact upvote / score / downvote row beneath the emoji reactions. The
+   active vote button takes the theme color; a negative score is shown in red. */
+.cp-vote { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; padding: 4px 4px; }
+.cp-vote-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #222;
+  border: 1px solid #2a2a2a;
+  font-size: 15px;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.cp-vote-btn:active { transform: scale(0.92); }
+.cp-vote-btn.up.active { background: rgba(254, 44, 85, 0.2); border-color: #fe2c55; }
+.cp-vote-btn.down.active { background: rgba(80, 160, 255, 0.2); border-color: #50a0ff; }
+.cp-vote-score {
+  min-width: 22px;
+  text-align: center;
+  color: #fff;
+  font-size: 13px;
+  font-weight: bold;
+  padding: 0 2px;
+}
+.cp-vote-score.neg { color: #ff6b6b; }
 
 /* ===================== Feature 1: @mention styles ===================== */
 /* Highlighted @username inside rendered comments */
