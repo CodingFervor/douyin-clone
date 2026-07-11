@@ -161,6 +161,12 @@ onMounted(async () => {
   loadReminder()
   loadSchedules()
   pollTimer = setInterval(pollMessages, 3000)
+  // Feature: 直播间热度计 — initial compute + refresh every 10s.
+  computeHeat()
+  heatTimer = setInterval(() => {
+    loadContributors()
+    computeHeat()
+  }, 10000)
 })
 
 onUnmounted(() => {
@@ -170,6 +176,8 @@ onUnmounted(() => {
   if (diceStopTimer) clearTimeout(diceStopTimer)
   // Feature: 排行榜更新动画 — clear the flash-class reset timer.
   if (changeClassTimer) clearTimeout(changeClassTimer)
+  // Feature: 直播间热度计 — clear the 10s refresh timer.
+  if (heatTimer) { clearInterval(heatTimer); heatTimer = null }
 })
 
 async function pollMessages() {
@@ -184,6 +192,8 @@ function doLike() {
     floatingHearts.value = floatingHearts.value.filter((i) => i !== id)
   }, 1500)
   likeLive(route.params.id).catch(() => {})
+  // Feature: 直播间热度计 — keep heat in sync with likes.
+  computeHeat()
 }
 
 async function sendMessage() {
@@ -730,6 +740,47 @@ function formatScheduleDate(s) {
   if (isNaN(d.getTime())) return ''
   return `${d.getMonth() + 1}月${d.getDate()}日`
 }
+
+// ===================== Feature: Live room heat meter (直播间热度计) =====================
+// A vertical thermometer gauge on the right side of the screen. "热度" is the
+// sum of viewers + likes + the total contribution amount. The fill level + color
+// tier is keyed off the viewer count:
+//   < 1000      → blue   (冷)
+//   1000–5000   → orange (温)
+//   5000–10000  → red    (热)
+//   > 10000     → purple (爆)
+// The fill animates and bubbles at the top; a "🔥 热度: X" label sits beside it.
+// The value recomputes every 10 seconds (and re-reads the latest contributors).
+const heatValue = ref(0)
+let heatTimer = null
+
+// computeHeat sums viewers + likes + total contributor amount into heatValue.
+function computeHeat() {
+  const viewers = room.value?.viewers || 0
+  const likes = likeCount.value || 0
+  const contrib = contributors.value.reduce((s, c) => s + (c.amount || 0), 0)
+  heatValue.value = viewers + likes + contrib
+}
+
+// heatTier resolves the current color tier from the viewer count.
+// Returns { key, color, label } used to drive the fill color + bubble tint.
+function heatTier() {
+  const v = room.value?.viewers || 0
+  if (v > 10000) return { key: 'boom', color: '#9c27b0', label: '爆' }
+  if (v >= 5000) return { key: 'hot', color: '#ff3b30', label: '热' }
+  if (v >= 1000) return { key: 'warm', color: '#ff9500', label: '温' }
+  return { key: 'cold', color: '#4facfe', label: '冷' }
+}
+
+// heatFillPct maps the viewer count to a 0–100 fill level (log-scaled so small
+// rooms still show a visible fill and very large rooms don't overflow).
+function heatFillPct() {
+  const v = room.value?.viewers || 0
+  if (v <= 0) return 4
+  // log1p keeps a 0–10000 spread readable; cap at 100.
+  const pct = Math.round((Math.log1p(v) / Math.log1p(12000)) * 100)
+  return Math.max(4, Math.min(100, pct))
+}
 </script>
 
 <template>
@@ -978,6 +1029,23 @@ function formatScheduleDate(s) {
         <van-icon name="cross" color="#fff" size="32" />
         <span>关闭</span>
       </div>
+    </div>
+
+    <!-- ===================== Feature: 直播间热度计 (heat meter) =====================
+         A vertical thermometer gauge on the right side. The fill level + color tier
+         (cold/warm/hot/boom) is keyed off the viewer count; heat = viewers +
+         likes + contribution. Bubbles animate at the top of the fill. -->
+    <div class="heat-meter" :class="'heat-' + heatTier().key">
+      <div class="heat-bulb" :style="{ background: heatTier().color }"></div>
+      <div class="heat-tube">
+        <div class="heat-fill" :style="{ height: heatFillPct() + '%', background: heatTier().color }">
+          <span class="heat-bubble heat-bubble-1"></span>
+          <span class="heat-bubble heat-bubble-2"></span>
+          <span class="heat-bubble heat-bubble-3"></span>
+        </div>
+      </div>
+      <div class="heat-label">🔥 热度</div>
+      <div class="heat-value">{{ fmt(heatValue) }}</div>
     </div>
 
     <!-- Flying gifts animation layer -->
@@ -1954,4 +2022,98 @@ function formatScheduleDate(s) {
 .ac-btn-outline :deep(.van-button__text) { color: #fff; }
 
 .ac-loading { padding: 60px; }
+
+/* ===================== Feature: 直播间热度计 (heat meter) ===================== */
+/* Vertical thermometer gauge fixed to the right edge, vertically centered. Sits
+   above the action rail and below the entry buttons. */
+.heat-meter {
+  position: absolute;
+  right: 14px;
+  top: 48%;
+  transform: translateY(-50%);
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+}
+/* Round bulb at the bottom of the thermometer. */
+.heat-bulb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.6);
+  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+  order: 3;
+  animation: heatBulbPulse 1.4s ease-in-out infinite;
+}
+@keyframes heatBulbPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+/* The glass tube holding the fill. */
+.heat-tube {
+  position: relative;
+  width: 14px;
+  height: 120px;
+  background: rgba(0,0,0,0.55);
+  border: 2px solid rgba(255,255,255,0.5);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 0 8px rgba(0,0,0,0.4);
+  order: 2;
+}
+/* Fill column — height driven by viewer count, color by tier. Grows smoothly. */
+.heat-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 0 0 5px 5px;
+  transition: height 0.8s ease, background 0.8s ease;
+  overflow: hidden;
+}
+/* Bubbling effect — small circles rising inside the fill at the top. */
+.heat-bubble {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 5px;
+  height: 5px;
+  background: rgba(255,255,255,0.7);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  animation: heatBubble 1.6s ease-in infinite;
+}
+.heat-bubble-1 { animation-delay: 0s; }
+.heat-bubble-2 { animation-delay: 0.5s; }
+.heat-bubble-3 { animation-delay: 1s; }
+@keyframes heatBubble {
+  0%   { bottom: 0; opacity: 0; transform: translateX(-50%) scale(0.6); }
+  20%  { opacity: 0.9; }
+  100% { bottom: 100%; opacity: 0; transform: translateX(-50%) scale(1); }
+}
+/* Label + value under the gauge. */
+.heat-label {
+  order: 1;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  white-space: nowrap;
+}
+.heat-value {
+  order: 4;
+  font-size: 11px;
+  font-weight: bold;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+}
+/* Tier-tinted glow on the tube border for a little extra flair. */
+.heat-meter.heat-cold .heat-tube { box-shadow: 0 0 10px rgba(79,172,254,0.5); }
+.heat-meter.heat-warm .heat-tube { box-shadow: 0 0 10px rgba(255,149,0,0.5); }
+.heat-meter.heat-hot .heat-tube { box-shadow: 0 0 10px rgba(255,59,48,0.55); }
+.heat-meter.heat-boom .heat-tube { box-shadow: 0 0 12px rgba(156,39,176,0.6); }
 </style>

@@ -595,6 +595,12 @@ onMounted(() => showSwipeGuide())
 onMounted(() => loadSoundPref())
 // Feature: 播放速度记忆 — restore the saved playback speed + toast on mount.
 onMounted(() => restorePlaybackSpeed())
+// Feature: 策展模式 — restore the saved curator-mode preference on mount.
+onMounted(() => loadCuratorPref())
+// Feature: 评论时间戳 — refresh relative times every minute.
+onMounted(() => {
+  commentTimeTimer = setInterval(() => { nowTick.value = Date.now() }, 60000)
+})
 
 onUnmounted(() => {
   stopFollowCheck()
@@ -613,6 +619,8 @@ onUnmounted(() => {
   cancelBookmarkPress()
   // Feature: 评论草稿自动保存 — clear the debounce timer so it doesn't fire post-unmount.
   if (draftDebounce) clearTimeout(draftDebounce)
+  // Feature: 评论时间戳 — clear the per-minute refresh timer.
+  if (commentTimeTimer) { clearInterval(commentTimeTimer); commentTimeTimer = null }
 })
 
 async function loadFeed(tab) {
@@ -1331,6 +1339,80 @@ function clearDraft() {
   try { localStorage.removeItem(draftKey()) } catch (e) {}
   hasDraft.value = false
 }
+
+// ===================== Feature: Video collection curator mode (策展模式) =====================
+// An editor's-pick overlay. When enabled, every video shows a "推荐" badge and a
+// quality score derived deterministically from its likes/plays ratio (so the
+// same video always reports the same score). High-quality videos (score > 0.3)
+// get a golden border frame, and an "编辑推荐" watermark sits in the bottom-right
+// of every slide. The toggle persists in localStorage 'dy_curator_mode'.
+const CURATOR_KEY = 'dy_curator_mode'
+const curatorMode = ref(false)
+
+// loadCuratorPref restores the saved curator-mode preference on mount.
+function loadCuratorPref() {
+  try {
+    curatorMode.value = localStorage.getItem(CURATOR_KEY) === '1'
+  } catch (e) {
+    curatorMode.value = false
+  }
+}
+
+// toggleCurator flips the mode and persists the choice.
+function toggleCurator() {
+  curatorMode.value = !curatorMode.value
+  try {
+    localStorage.setItem(CURATOR_KEY, curatorMode.value ? '1' : '0')
+  } catch (e) {
+    // localStorage may be unavailable — ignore.
+  }
+}
+
+// qualityScore returns a deterministic 0–1 score for a video from its
+// likes/plays ratio. Guards divide-by-zero and clamps to [0,1].
+function qualityScore(v) {
+  if (!v) return 0
+  const plays = v.plays || 0
+  const likes = v.likes || 0
+  if (plays <= 0) return likes > 0 ? 1 : 0
+  return Math.min(1, Math.max(0, likes / plays))
+}
+
+// fmtScore renders the score as a percentage like "42%".
+function fmtScore(v) {
+  return Math.round(qualityScore(v) * 100) + '%'
+}
+
+// ===================== Feature: Comment timestamps (评论时间戳) =====================
+// Show a relative time ("刚刚" / "3分钟前" / "2小时前" / "昨天" / "3天前") under
+// each comment's username, derived from its created_at field. The rendered times
+// refresh every minute via a reactive "now" tick, which is cleared on unmount.
+const nowTick = ref(Date.now())
+let commentTimeTimer = null
+
+// relTime maps a created_at value to a Chinese relative-time string.
+//   < 1 min  → 刚刚
+//   < 1 h    → X分钟前
+//   < 1 day  → X小时前
+//   1 day    → 昨天
+//   < 30 d   → X天前
+//   older    → X月前 (falls back to a stable formatted date)
+function relTime(createdAt) {
+  if (!createdAt) return ''
+  const t = new Date(createdAt)
+  if (isNaN(t.getTime())) return ''
+  const diff = Math.max(0, nowTick.value - t.getTime())
+  const min = Math.floor(diff / 60000)
+  if (min < 1) return '刚刚'
+  if (min < 60) return min + '分钟前'
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return hr + '小时前'
+  const day = Math.floor(hr / 24)
+  if (day === 1) return '昨天'
+  if (day < 30) return day + '天前'
+  const mon = Math.floor(day / 30)
+  return mon + '个月前'
+}
 </script>
 
 <template>
@@ -1352,6 +1434,9 @@ function clearDraft() {
       <span class="sound-btn" @click="toggleSound">{{ soundOn ? '🔊' : '🔇' }}</span>
       <!-- Feature: 视频壁纸模式 — 🖼️ button enters fullscreen wallpaper/screensaver mode. -->
       <span class="wallpaper-btn" @click="enterWallpaper">🖼️</span>
+      <!-- ===================== Feature: 策展模式 (curator mode) =====================
+           Toggles the editor's-pick overlay; preference persists in 'dy_curator_mode'. -->
+      <span class="curator-btn" :class="{ on: curatorMode }" @click="toggleCurator">🎯 策展模式</span>
       <!-- ===================== Feature: 视频睡眠定时 (sleep timer) =====================
            😴 opens a small options popup; an active timer shows a "剩余 N分钟" badge. -->
       <span class="sleep-btn" @click="sleepMenu = true">
@@ -1439,6 +1524,21 @@ function clearDraft() {
         <div v-if="i === index && playbackRate !== 1.0 && !wallpaperMode" class="speed-badge">
           {{ playbackRate }}x
         </div>
+        <!-- ===================== Feature: 策展模式 (curator mode) per-slide overlay =====================
+             Shown on the active slide while curator mode is on: a "推荐" badge with the
+             quality score in the top-left, a golden border frame for high-quality
+             videos (score > 0.3), and an "编辑推荐" watermark in the bottom-right. -->
+        <template v-if="curatorMode && !wallpaperMode">
+          <!-- Top-left 推荐 badge + deterministic quality score -->
+          <div class="curator-badge">
+            <span class="cb-tag">推荐</span>
+            <span class="cb-score">质量 {{ fmtScore(v) }}</span>
+          </div>
+          <!-- Golden border frame for high-quality videos -->
+          <div v-if="qualityScore(v) > 0.3" class="curator-frame"></div>
+          <!-- Bottom-right editor's-pick watermark -->
+          <div class="curator-watermark">✦ 编辑推荐</div>
+        </template>
         <!-- ===================== Feature: Auto-pause on scroll away (滑出自动暂停) =====================
              Shown only on the active slide after the tab was hidden then returned
              to. The video was auto-paused on hide; tapping this overlay resumes it. -->
@@ -1587,6 +1687,8 @@ function clearDraft() {
                 <span class="cp-user">{{ pinnedComment.username }}</span>
                 <span class="cp-pin-tag">📌 置顶</span>
               </div>
+              <!-- Feature: 评论时间戳 — small gray relative time below the username -->
+              <div v-if="relTime(pinnedComment.created_at)" class="cp-time">{{ relTime(pinnedComment.created_at) }}</div>
               <div class="cp-content">
                 <span v-if="!isTranslating(pinnedComment.id)">
                   <template v-for="(seg, si) in parseMentions(translatedText(pinnedComment.content, pinnedComment.id))" :key="si">
@@ -1639,6 +1741,8 @@ function clearDraft() {
             <img class="cp-avatar" :src="c.avatar || 'https://via.placeholder.com/36'" />
             <div class="cp-body">
               <div class="cp-user">{{ c.username }}</div>
+              <!-- Feature: 评论时间戳 — small gray relative time below the username -->
+              <div v-if="relTime(c.created_at)" class="cp-time">{{ relTime(c.created_at) }}</div>
               <div class="cp-content">
                 <span v-if="!isTranslating(c.id)">
                   <template v-for="(seg, si) in parseMentions(translatedText(c.content, c.id))" :key="si">
@@ -1996,6 +2100,8 @@ function clearDraft() {
 .cp-avatar { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; }
 .cp-body { flex: 1; }
 .cp-user { color: #888; font-size: 13px; }
+/* Feature: 评论时间戳 — small gray relative time below the username */
+.cp-time { color: #666; font-size: 11px; margin-top: 2px; }
 .cp-content { color: #fff; font-size: 14px; margin-top: 3px; }
 .cp-reply-btn { color: #888; font-size: 12px; margin-top: 6px; display: inline-block; cursor: pointer; }
 .cp-reply-btn.active { color: #fe2c55; }
@@ -2586,6 +2692,84 @@ function clearDraft() {
   background: #fe2c55;
   padding: 1px 7px;
   border-radius: 8px;
+  pointer-events: none;
+}
+
+/* ===================== Feature: 策展模式 (curator mode) ===================== */
+/* Toggle button — sits just left of the 😴 sleep button. Lights up gold when on. */
+.curator-btn {
+  position: absolute;
+  right: 160px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.75);
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+  padding: 4px 9px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.3);
+  background: rgba(0,0,0,0.35);
+  white-space: nowrap;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.curator-btn:active { opacity: 0.7; }
+.curator-btn.on {
+  color: #4a3500;
+  background: linear-gradient(135deg, #ffd700, #ffb300);
+  border-color: #ffd700;
+  box-shadow: 0 2px 10px rgba(255,215,0,0.5);
+}
+/* Top-left 推荐 badge + quality score, gold-toned pill. */
+.curator-badge {
+  position: absolute;
+  top: 52px;
+  left: 14px;
+  z-index: 13;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255,215,0,0.92), rgba(255,179,0,0.92));
+  color: #4a3500;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 2px 10px rgba(255,215,0,0.45);
+  pointer-events: none;
+  animation: curatorBadgeIn 0.25s ease-out;
+}
+@keyframes curatorBadgeIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cb-tag { font-weight: 700; }
+.cb-score { font-variant-numeric: tabular-nums; opacity: 0.9; }
+/* Golden border frame overlay for high-quality videos (score > 0.3). */
+.curator-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  border: 4px solid rgba(255,215,0,0.85);
+  box-shadow: inset 0 0 24px rgba(255,215,0,0.35);
+  pointer-events: none;
+  animation: curatorFramePulse 2.4s ease-in-out infinite;
+}
+@keyframes curatorFramePulse {
+  0%, 100% { box-shadow: inset 0 0 24px rgba(255,215,0,0.35); }
+  50% { box-shadow: inset 0 0 36px rgba(255,215,0,0.6); }
+}
+/* Bottom-right editor's-pick watermark. */
+.curator-watermark {
+  position: absolute;
+  right: 14px;
+  bottom: 188px;
+  z-index: 13;
+  color: rgba(255,215,0,0.85);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.6);
   pointer-events: none;
 }
 </style>

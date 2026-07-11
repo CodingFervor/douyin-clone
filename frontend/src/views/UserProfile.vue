@@ -156,6 +156,48 @@ const radarLabels = RADAR_AXES.map((label, i) => {
   const p = radarPoint(i, 1.28)
   return { label, x: p.x, y: p.y, val: radarValues.value[i] }
 })
+
+// ===================== Feature: Profile visit counter (主页访客统计) =====================
+// A visitor-stats card on the profile page. The total + daily counts are
+// deterministic per user (derived from a hash of the user id) so the same
+// profile always shows the same numbers (demo range 100–99999). A row of 3–5
+// random recent-visitor avatars (from dicebear) sits under the counts; a
+// "查看全部" link surfaces a toast.
+// hashId turns a user id into a stable 32-bit integer (FNV-1a-ish).
+function hashId(id) {
+  const s = String(id == null ? '' : id)
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return Math.abs(h)
+}
+// totalVisitors — deterministic in 100–99999 from the user id hash.
+const totalVisitors = computed(() => 100 + (hashId(user.value?.id) % 99900))
+// todayVisitors — deterministic in 1–999 (a slice of the total, day-keyed so it
+// shifts day to day but stays stable within a day).
+const todayVisitors = computed(() => {
+  const base = hashId(user.value?.id)
+  const d = new Date()
+  const dayKey = d.getFullYear() * 1000 + (d.getMonth() + 1) * 50 + d.getDate()
+  return 1 + ((base ^ dayKey) % 999)
+})
+// recentVisitorAvatars — 3–5 deterministic dicebear avatars seeded by the user id.
+const recentVisitorAvatars = computed(() => {
+  const base = hashId(user.value?.id)
+  const count = 3 + (base % 3) // 3, 4, or 5
+  const out = []
+  for (let i = 0; i < count; i++) {
+    const seed = (base + i * 2654435761) >>> 0
+    out.push(`https://api.dicebear.com/7.x/avataaars/svg?seed=u${seed}`)
+  }
+  return out
+})
+// showVisitors surfaces the "查看访客详情" toast from the 查看全部 link.
+function showVisitors() {
+  showToast('查看访客详情')
+}
 </script>
 
 <template>
@@ -238,6 +280,40 @@ const radarLabels = RADAR_AXES.map((label, i) => {
             <span class="radar-legend-name">{{ axis }}</span>
             <span class="radar-legend-val">{{ radarValues[i] }}</span>
           </span>
+        </div>
+      </div>
+
+      <!-- ===================== Feature: Profile visit counter (主页访客统计) =====================
+           A visitor-stats card: today's visitors, total visitors, a row of recent
+           visitor avatars (dicebear), and a "查看全部" link that toasts. -->
+      <div class="visitor-card">
+        <div class="vc-head">
+          <span class="vc-title">👁️ 访客</span>
+          <span class="vc-all" @click="showVisitors">查看全部 &rsaquo;</span>
+        </div>
+        <div class="vc-stats">
+          <div class="vc-stat">
+            <div class="vc-num">{{ fmtCount(todayVisitors) }}</div>
+            <div class="vc-lbl">今日访客</div>
+          </div>
+          <div class="vc-divider"></div>
+          <div class="vc-stat">
+            <div class="vc-num">{{ fmtCount(totalVisitors) }}</div>
+            <div class="vc-lbl">总访客</div>
+          </div>
+        </div>
+        <div class="vc-recent">
+          <span class="vc-recent-label">最近访客</span>
+          <div class="vc-avatars">
+            <img
+              v-for="(a, i) in recentVisitorAvatars"
+              :key="i"
+              class="vc-avatar"
+              :style="{ zIndex: recentVisitorAvatars.length - i }"
+              :src="a"
+            />
+            <span class="vc-more">…</span>
+          </div>
         </div>
       </div>
       <div class="tab-head">作品 {{ videos.length }}</div>
@@ -324,4 +400,48 @@ const radarLabels = RADAR_AXES.map((label, i) => {
 .radar-legend-item { display: flex; flex-direction: column; align-items: center; }
 .radar-legend-name { color: #888; font-size: 11px; }
 .radar-legend-val { color: #fe2c55; font-size: 14px; font-weight: bold; }
+
+/* ===================== Feature: 主页访客统计 (profile visit counter) ===================== */
+/* A card below the radar showing today/total visitor counts, recent avatars,
+   and a 查看全部 link that toasts. */
+.visitor-card {
+  background: #161616;
+  margin: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+}
+.vc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.vc-title { color: #fff; font-size: 14px; font-weight: bold; }
+.vc-all { color: #fe2c55; font-size: 12px; cursor: pointer; }
+.vc-all:active { opacity: 0.6; }
+.vc-stats { display: flex; align-items: center; justify-content: center; gap: 28px; }
+.vc-stat { display: flex; flex-direction: column; align-items: center; }
+.vc-num { color: #fff; font-size: 20px; font-weight: bold; font-variant-numeric: tabular-nums; }
+.vc-lbl { color: #888; font-size: 11px; margin-top: 2px; }
+.vc-divider { width: 1px; height: 26px; background: #2a2a2a; }
+/* Recent visitor avatars row */
+.vc-recent { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.vc-recent-label { color: #888; font-size: 12px; }
+.vc-avatars { display: flex; align-items: center; }
+.vc-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid #161616;
+  background: #222;
+  margin-left: -8px;
+  object-fit: cover;
+}
+.vc-avatar:first-child { margin-left: 0; }
+.vc-more {
+  color: #888;
+  font-size: 14px;
+  font-weight: bold;
+  margin-left: 4px;
+}
 </style>
