@@ -232,6 +232,15 @@ const dailyPicks = computed(() => {
       <template #action><span style="color: #fe2c55" @click="doSearch">搜索</span></template>
     </van-search>
 
+    <!-- ===================== Feature: 发现页智能问候 (smart time greeting) =====================
+         A time-aware banner. The greeting, emoji and gradient background are all
+         derived from the current hour and re-evaluate every minute so the banner
+         stays correct if the page is open across a time-of-day boundary. -->
+    <div class="greeting-banner" :class="greetingKey" :style="{ background: greeting.gradient }">
+      <span class="gb-emoji">{{ greeting.emoji }}</span>
+      <span class="gb-text">{{ greeting.text }}</span>
+    </div>
+
     <!-- ===================== Feature: 每日精选 (daily pick) =====================
          A curated daily section: 3 picks chosen deterministically by date hash,
          each showing a cover image, an "编辑推荐" badge, and a pick reason.
@@ -355,6 +364,42 @@ const dailyPicks = computed(() => {
 <style scoped>
 .discover-page { height: 100vh; overflow-y: auto; background: #000; }
 .hot-tags { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+
+/* ===================== Feature: 发现页智能问候 (smart time greeting) =====================
+   A time-aware banner. The gradient background is bound inline from the
+   greeting bucket; the class on the root switches the emoji accent glow per
+   time of day. */
+.greeting-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 12px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  color: #fff;
+  min-height: 52px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  transition: background 0.6s ease;
+}
+.gb-emoji {
+  font-size: 26px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4));
+  animation: gbBob 2.4s ease-in-out infinite;
+}
+@keyframes gbBob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+.gb-text {
+  flex: 1;
+  font-size: 14px;
+  font-weight: bold;
+  line-height: 20px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+/* Night banner uses lighter text since the background is darker/cooler. */
+.greeting-banner.night .gb-text { color: #e8e8ff; }
 
 /* ===================== Feature: 每日精选 (daily pick) ===================== */
 .daily-picks {
