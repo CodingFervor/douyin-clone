@@ -95,6 +95,73 @@ function removeNotify(n) {
   showToast('已删除')
 }
 
+// ===================== Feature: 消息批量删除 (batch delete) =====================
+// A "管理" mode toggle. When ON, each notification shows a checkbox and the
+// swipe cells are disabled; a bottom action bar with a "全选"/"删除选中" pair
+// appears. Selecting rows and tapping 删除选中 removes them all client-side and
+// keeps the unread badge in sync. selectedIds holds the checked notification ids.
+const manageMode = ref(false)
+const selectedIds = ref(new Set())
+
+// enterManage / exitManage toggle the batch-delete mode. Entering clears any
+// prior selection; exiting always clears so a re-entry starts fresh.
+function enterManage() {
+  manageMode.value = true
+  selectedIds.value = new Set()
+}
+function exitManage() {
+  manageMode.value = false
+  selectedIds.value = new Set()
+}
+
+// toggleSelect checks/unchecks a single notification by id.
+function toggleSelect(n) {
+  const next = new Set(selectedIds.value)
+  if (next.has(n.id)) next.delete(n.id)
+  else next.add(n.id)
+  selectedIds.value = next
+}
+
+// selectAll checks every visible notification; if all are already checked it
+// clears the selection instead (toggle behaviour).
+const allSelected = computed(() =>
+  filteredList.value.length > 0 &&
+  filteredList.value.every((n) => selectedIds.value.has(n.id))
+)
+function selectAll() {
+  if (allSelected.value) {
+    selectedIds.value = new Set()
+    return
+  }
+  selectedIds.value = new Set(filteredList.value.map((n) => n.id))
+}
+
+// selectedCount — how many rows are currently checked (drives the button label).
+const selectedCount = computed(() => selectedIds.value.size)
+
+// deleteSelected removes every checked notification client-side and adjusts the
+// unread counts for any that were unread, then exits manage mode.
+function deleteSelected() {
+  if (!selectedIds.value.size) { showToast('请先选择消息'); return }
+  const ids = selectedIds.value
+  // Tally unread removals per type so the badge stays consistent.
+  let unreadByType = {}
+  list.value.forEach((n) => {
+    if (ids.has(n.id) && !n.is_read && n.type) {
+      unreadByType[n.type] = (unreadByType[n.type] || 0) + 1
+    }
+  })
+  list.value = list.value.filter((n) => !ids.has(n.id))
+  Object.keys(unreadByType).forEach((type) => {
+    if (counts.value[type] != null) {
+      counts.value[type] = Math.max(0, (counts.value[type] || 0) - unreadByType[type])
+    }
+  })
+  syncBadge()
+  showToast('已删除' + ids.size + '条')
+  exitManage()
+}
+
 function descOf(n) {
   if (n.type === 'like') return '赞了你的作品'
   if (n.type === 'comment') return n.content
@@ -298,7 +365,14 @@ onActivated(load)
           :class="{ on: soundEnabled }"
           @click="toggleNotifySound"
         >{{ soundEnabled ? '🔔' : '🔕' }}</span>
-        <span v-if="loggedIn" style="color: #fe2c55; font-size: 13px" @click="readAll">全部已读</span>
+        <!-- ===================== Feature: 消息批量删除 (batch delete) =====================
+             "管理"/"完成" toggle enters/exits batch-delete mode. -->
+        <span
+          v-if="loggedIn && list.length"
+          class="manage-btn"
+          @click="manageMode ? exitManage() : enterManage()"
+        >{{ manageMode ? '完成' : '管理' }}</span>
+        <span v-if="loggedIn && !manageMode" style="color: #fe2c55; font-size: 13px" @click="readAll">全部已读</span>
       </template>
     </van-nav-bar>
     <div v-if="!loggedIn" class="login-hint">
@@ -351,9 +425,22 @@ onActivated(load)
         <!-- ===================== Feature: 按日期分组 (group by date) ===================== -->
         <div v-for="g in grouped" :key="g.label" class="date-group">
           <div class="date-head">{{ g.label }}</div>
-          <!-- ===================== Feature: swipe-to-delete ===================== -->
-          <van-swipe-cell v-for="n in g.items" :key="n.id">
-            <div class="notify-item" :class="{ unread: !n.is_read }">
+          <!-- ===================== Feature: swipe-to-delete =====================
+               Disabled while in batch-delete (manage) mode; there the row shows a
+               checkbox instead and tapping the row toggles selection. -->
+          <van-swipe-cell v-for="n in g.items" :key="n.id" :disabled="manageMode">
+            <div
+              class="notify-item"
+              :class="{ unread: !n.is_read, selected: manageMode && selectedIds.has(n.id) }"
+              @click="manageMode ? toggleSelect(n) : null"
+            >
+              <!-- ===================== Feature: 消息批量删除 (batch checkbox) =====================
+                   A circular checkbox replaces the swipe affordance in manage mode. -->
+              <span
+                v-if="manageMode"
+                class="n-check"
+                :class="{ checked: selectedIds.has(n.id) }"
+              >{{ selectedIds.has(n.id) ? '✓' : '' }}</span>
               <img class="n-avatar" :src="n.actor_avatar || 'https://via.placeholder.com/40'" />
               <div class="n-body">
                 <div class="n-user">{{ n.actor_name }} <small>{{ descOf(n) }}</small></div>
@@ -375,6 +462,22 @@ onActivated(load)
     <div v-if="loggedIn && list.length" class="fab-read" @click="quickRead">
       <van-icon name="success" size="22" color="#fff" />
       <span>一键已读</span>
+    </div>
+
+    <!-- ===================== Feature: 消息批量删除 (batch action bar) =====================
+         Fixed bottom bar shown only in manage mode. 全选 toggles all visible rows;
+         删除选中 removes the checked notifications. -->
+    <div v-if="manageMode" class="batch-bar">
+      <span class="bb-select-all" @click="selectAll">{{ allSelected ? '取消全选' : '全选' }}</span>
+      <span class="bb-count">已选 {{ selectedCount }} 项</span>
+      <van-button
+        round
+        color="#fe2c55"
+        size="small"
+        :disabled="!selectedCount"
+        class="bb-delete"
+        @click="deleteSelected"
+      >删除选中</van-button>
     </div>
   </div>
 </template>
@@ -491,4 +594,56 @@ onActivated(load)
   85% { transform: rotate(6deg); }
   90% { transform: rotate(-4deg); }
 }
+
+/* ===================== Feature: 消息批量删除 (batch delete) =====================
+   The "管理"/"完成" toggle in the nav bar. */
+.manage-btn {
+  color: #25f4ee;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  margin-right: 12px;
+}
+/* Circular checkbox shown on each row in manage mode. */
+.n-check {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid #555;
+  background: transparent;
+  color: #fff;
+  font-size: 13px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  transition: background 0.15s, border-color 0.15s;
+}
+.n-check.checked {
+  background: #fe2c55;
+  border-color: #fe2c55;
+}
+/* A subtle highlight on a checked row so the selection is obvious. */
+.notify-item.selected { background: rgba(254, 44, 85, 0.12) !important; }
+
+/* Fixed bottom action bar for batch mode. */
+.batch-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: #161616;
+  border-top: 1px solid #2a2a2a;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.5);
+}
+.bb-select-all { color: #fff; font-size: 14px; cursor: pointer; user-select: none; }
+.bb-count { color: #888; font-size: 12px; flex: 1; }
+.bb-delete { flex-shrink: 0; }
 </style>

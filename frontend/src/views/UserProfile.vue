@@ -229,6 +229,31 @@ function showVisitors() {
   showToast('查看访客详情')
 }
 
+// ===================== Feature: Profile level hexagonal badge frame (主页等级徽章框) =====================
+// An animated hexagonal frame rendered around the avatar, color-coded by the
+// user's level. The hexagon is a clip-path shape filled with a level-colored
+// gradient; a thin animated conic-gradient ring rotates around it for higher
+// levels so popular accounts feel "premium". A small "Lv N" chip sits at the
+// bottom point of the hexagon. Tiers:
+//   Lv 0-9   → 新手  gray/green
+//   Lv 10-29 → 进阶  blue
+//   Lv 30-49 → 高手  purple
+//   Lv 50+   → 王者  gold (animated ring on)
+const LEVEL_TIERS = [
+  { min: 50, name: '王者', color: '#ffd700', glow: '#ffb300', animated: true },
+  { min: 30, name: '高手', color: '#a855f7', glow: '#7c3aed', animated: true },
+  { min: 10, name: '进阶', color: '#4facfe', glow: '#25f4ee', animated: false },
+  { min: 0,  name: '新手', color: '#2ecc71', glow: '#27ae60', animated: false },
+]
+// levelTier returns the tier definition matching the user's current level.
+const levelTier = computed(() => {
+  const lv = (user.value && user.value.level) || 0
+  return LEVEL_TIERS.find((t) => lv >= t.min) || LEVEL_TIERS[LEVEL_TIERS.length - 1]
+})
+// Hexagon clip-path points (regular hexagon, flat-top orientation) reused for
+// the gradient fill and the avatar mask so they stack exactly.
+const HEX_CLIP = 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)'
+
 // ===================== Feature: Profile achievement badges (主页成就徽章) =====================
 // A horizontally scrollable row of achievement badges derived from the user's
 // stats. Each badge has a threshold; when the user meets it the badge is "lit"
@@ -300,7 +325,17 @@ function tapBadge(b) {
     <div v-if="loading" class="loading"><van-loading color="#fe2c55" /></div>
     <template v-else-if="user">
       <div class="head" :class="headerClass" :style="headerStyle">
-        <img class="avatar" :src="user.avatar || 'https://via.placeholder.com/80'" />
+        <!-- ===================== Feature: 主页等级徽章框 (level hexagonal frame) =====================
+             An animated hexagonal frame around the avatar, color-coded by level.
+             The outer hex is a tier-colored gradient with a rotating conic ring for
+             high levels (高手/王者); the avatar is clipped into a matching hexagon. -->
+        <div class="avatar-hex" :class="{ 'hex-animated': levelTier.animated }">
+          <div class="hex-ring"></div>
+          <div class="hex-frame" :style="{ background: 'linear-gradient(135deg, ' + levelTier.color + ', ' + levelTier.glow + ')' }">
+            <img class="hex-avatar" :src="user.avatar || 'https://via.placeholder.com/80'" />
+          </div>
+          <span class="hex-level">Lv {{ user.level || 0 }}</span>
+        </div>
         <div class="nick">{{ user.nickname || user.username }}</div>
         <div class="uid">抖音号: {{ user.username }}</div>
         <div class="bio" v-if="user.bio">{{ user.bio }}</div>
@@ -479,7 +514,79 @@ function tapBadge(b) {
 }
 .head { position: relative; padding: 10px 20px 20px; background: #161616; text-align: center; transition: background-image 0.4s ease; }
 .head-themed { color: #fff; }
-.avatar { width: 80px; height: 80px; border-radius: 50%; margin: 0 auto; border: 2px solid rgba(255,255,255,0.4); }
+
+/* ===================== Feature: 主页等级徽章框 (level hexagonal frame) =====================
+   The avatar is wrapped in a hexagon. Three layers stack inside .avatar-hex:
+     .hex-ring   — a rotating conic-gradient (only animated for high tiers)
+     .hex-frame  — the solid tier-colored gradient hexagon border
+     .hex-avatar — the user's photo, clipped into a slightly smaller hexagon
+   A small "Lv N" chip sits at the bottom point of the hexagon. The hexagons use
+   the same clip-path polygon so they align perfectly. */
+.avatar-hex {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  margin: 0 auto;
+}
+/* Rotating conic ring — shown only when hex-animated is present (高手/王者). */
+.hex-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 12px;
+  background: conic-gradient(from 0deg, transparent, currentColor, transparent 60%);
+  color: #fe2c55;
+  opacity: 0;
+  filter: blur(2px);
+  animation: hexRingSpin 3s linear infinite;
+}
+.hex-animated .hex-ring { opacity: 0.7; }
+@keyframes hexRingSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+/* The colored hexagon frame behind the photo. */
+.hex-frame {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+  transition: background 0.4s ease;
+}
+/* The photo, clipped into a smaller hexagon so the frame shows as a border. */
+.hex-avatar {
+  width: 78px;
+  height: 78px;
+  object-fit: cover;
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+  background: #222;
+}
+/* The animated frame gently pulses so the badge feels "alive". */
+.hex-animated .hex-frame {
+  animation: hexPulse 2.4s ease-in-out infinite;
+}
+@keyframes hexPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+/* "Lv N" chip at the bottom point of the hexagon. */
+.hex-level {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #fe2c55, #ff6b9d);
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  line-height: 1;
+  padding: 3px 10px;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+  z-index: 2;
+}
 .nick { color: #fff; font-size: 20px; font-weight: bold; margin-top: 10px; }
 .uid { color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 4px; }
 .bio { color: rgba(255,255,255,0.85); font-size: 13px; margin-top: 8px; }

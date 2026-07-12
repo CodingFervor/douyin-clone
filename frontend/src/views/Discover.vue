@@ -295,6 +295,22 @@ const dailyPicks = computed(() => {
   return picks
 })
 
+// ===================== Feature: Discover random video (随机看) =====================
+// A "🎲随机看" button that navigates to /feed with a random video index passed
+// as a query param. The index is chosen from the currently loaded feed pool so
+// it always points at a real video; if the feed hasn't loaded yet we still jump
+// to /feed and let the feed page pick a sensible default. The Feed page reads
+// the `v` query param to start on a specific video.
+function randomVideo() {
+  const pool = allVideos.value
+  let idx = 0
+  if (pool && pool.length) {
+    // Seed with a time-based value so each tap lands on a different video.
+    idx = Math.floor(Math.random() * pool.length)
+  }
+  router.push({ path: '/feed', query: { v: String(idx) } })
+}
+
 </script>
 
 <template>

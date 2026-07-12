@@ -18,6 +18,58 @@ async function onUploadCover(item) {
   }
 }
 
+// ===================== Feature: 音乐试听 (music preview beep) =====================
+// A "🎵试听" button next to the music field. Tapping it plays a short 1-second
+// Web Audio beep as a stand-in for previewing the chosen track (there is no real
+// audio file in this demo). The button only appears once a music name is entered.
+// The AudioContext is created lazily on first use (and resumed if suspended) to
+// satisfy the browser's user-gesture requirement for audio playback.
+let previewAudioCtx = null
+const previewing = ref(false)
+
+// hasMusicName — true when a non-empty (non-"原声") music name has been entered.
+const hasMusicName = computed(() => {
+  const m = (form.value.music || '').trim()
+  return m.length > 0 && m !== '原声'
+})
+
+function previewMusic() {
+  if (previewing.value) return
+  try {
+    if (!previewAudioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext
+      if (!AC) { showToast('当前浏览器不支持试听'); return }
+      previewAudioCtx = new AC()
+    }
+    if (previewAudioCtx.state === 'suspended') previewAudioCtx.resume()
+    const now = previewAudioCtx.currentTime
+    // A pleasant 1s two-tone preview (a rising then falling chirp) so the beep
+    // feels musical rather than like an error tone.
+    const osc = previewAudioCtx.createOscillator()
+    const gain = previewAudioCtx.createGain()
+    osc.type = 'triangle'
+    // Pitch rises 660→880Hz then falls back over the 1s duration.
+    osc.frequency.setValueAtTime(660, now)
+    osc.frequency.linearRampToValueAtTime(880, now + 0.4)
+    osc.frequency.linearRampToValueAtTime(660, now + 0.95)
+    // Envelope: quick attack, sustain, gentle decay to avoid a click.
+    gain.gain.setValueAtTime(0, now)
+    gain.gain.linearRampToValueAtTime(0.2, now + 0.03)
+    gain.gain.setValueAtTime(0.2, now + 0.7)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.0)
+    osc.connect(gain)
+    gain.connect(previewAudioCtx.destination)
+    osc.start(now)
+    osc.stop(now + 1.02)
+    previewing.value = true
+    osc.onended = () => { previewing.value = false }
+    showToast('🎵 试听中...')
+  } catch (e) {
+    // Web Audio may be unavailable — fail silently with a friendly message.
+    showToast('试听失败')
+  }
+}
+
 const router = useRouter()
 const route = useRoute()
 const mode = ref('file')
@@ -537,7 +589,22 @@ async function submit() {
         </template>
       </van-field>
       <van-field v-model="form.tags" label="话题" placeholder="旅行,美食 (逗号分隔)" label-width="80" />
-      <van-field v-model="form.music" label="音乐" placeholder="原声" label-width="80" />
+      <van-field v-model="form.music" label="音乐" placeholder="原声" label-width="80">
+        <!-- ===================== Feature: 音乐试听 (music preview beep) =====================
+             "🎵试听" plays a 1s Web Audio beep once a music name is entered. The
+             button is disabled while a preview is already playing. -->
+        <template #button>
+          <van-button
+            v-if="hasMusicName"
+            size="small"
+            round
+            color="#fe2c55"
+            :loading="previewing"
+            class="music-preview-btn"
+            @click="previewMusic"
+          >🎵试听</van-button>
+        </template>
+      </van-field>
       <div class="filter-row">
         <span class="fr-label">滤镜</span>
         <div class="fr-chips">
@@ -995,4 +1062,7 @@ async function submit() {
   border: 1px solid rgba(255,255,255,0.35) !important;
 }
 .pa-back :deep(.van-button__text) { color: #fff; }
+
+/* ===================== Feature: 音乐试听 (music preview beep) ===================== */
+.music-preview-btn { flex-shrink: 0; }
 </style>
