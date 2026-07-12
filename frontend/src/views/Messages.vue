@@ -131,7 +131,7 @@ function dateBucket(t) {
 const grouped = computed(() => {
   const order = ['今天', '昨天', '更早']
   const map = { 今天: [], 昨天: [], 更早: [] }
-  for (const n of list.value) {
+  for (const n of filteredList.value) {
     const b = dateBucket(n.created_at)
     ;(map[b] || (map[b] = [])).push(n)
   }
@@ -139,6 +139,55 @@ const grouped = computed(() => {
     .filter((k) => map[k] && map[k].length)
     .map((k) => ({ label: k, items: map[k] }))
 })
+
+// ===================== Feature: 日期筛选 (date range filter) =====================
+// A dropdown next to the list header that filters the notifications by age.
+// Options: 全部 (no filter) / 今天 (<= 1 day) / 三天内 (<= 3 days). The chosen
+// range applies on top of the existing type filter, so it only narrows the
+// currently-loaded list. 'all' shows everything (including future-dated items);
+// 'today' and 'three' compute the cutoff from the start of the current UTC day.
+const DATE_FILTERS = [
+  { key: 'all', label: '全部' },
+  { key: 'today', label: '今天' },
+  { key: 'three', label: '三天内' },
+]
+const dateFilter = ref('all')
+const showDateFilter = ref(false) // dropdown menu visibility
+
+// cutoffMsFor returns the timestamp (ms) before which a notification is filtered
+// out for the given range. Returns 0 for 'all' so nothing is excluded.
+function cutoffMsFor(key) {
+  if (key === 'all') return 0
+  const days = key === 'today' ? 1 : 3
+  const now = new Date()
+  const startOfToday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  return startOfToday - days * 86400000 + 1
+}
+
+// filteredList narrows the loaded list by the selected date range. Items without
+// a parseable created_at are kept only under the 'all' range.
+const filteredList = computed(() => {
+  const cutoff = cutoffMsFor(dateFilter.value)
+  if (!cutoff) return list.value
+  return list.value.filter((n) => {
+    if (!n.created_at) return false
+    const d = new Date(String(n.created_at).replace(' ', 'T') + 'Z')
+    const t = d.getTime()
+    if (isNaN(t)) return false
+    return t >= cutoff
+  })
+})
+
+// pickDateFilter applies a range from the dropdown, closes the menu, and toasts
+// the selection (except 'all' which is the silent default).
+function pickDateFilter(key) {
+  dateFilter.value = key
+  showDateFilter.value = false
+  if (key !== 'all') {
+    const opt = DATE_FILTERS.find((f) => f.key === key)
+    if (opt) showToast('已筛选: ' + opt.label)
+  }
+}
 
 onMounted(load)
 onActivated(load)
@@ -169,10 +218,31 @@ onActivated(load)
       <div class="list-head">
         <span v-if="activeType">{{ tabs.find((t) => t.key === activeType)?.label }}通知</span>
         <span v-else>全部消息</span>
-        <span class="filter-all" v-if="activeType" @click="loadList('')">查看全部 ›</span>
+        <span class="list-head-right">
+          <span class="filter-all" v-if="activeType" @click="loadList('')">查看全部 ›</span>
+          <!-- ===================== Feature: 日期筛选 (date range filter) =====================
+               Dropdown trigger. Clicking toggles the menu; the active label updates. -->
+          <span class="date-filter" @click="showDateFilter = !showDateFilter">
+            <span class="df-label">{{ DATE_FILTERS.find((f) => f.key === dateFilter)?.label }}</span>
+            <van-icon name="arrow-down" size="10" />
+          </span>
+        </span>
+      </div>
+      <!-- ===================== Feature: 日期筛选 (date range filter) =====================
+           Dropdown menu anchored under the list header. One option per range. -->
+      <div v-if="showDateFilter" class="date-filter-menu" @click.self="showDateFilter = false">
+        <div class="df-menu-inner">
+          <div
+            v-for="f in DATE_FILTERS"
+            :key="f.key"
+            class="df-opt"
+            :class="{ active: dateFilter === f.key }"
+            @click="pickDateFilter(f.key)"
+          >{{ f.label }}</div>
+        </div>
       </div>
       <div v-if="loading" class="loading"><van-loading color="#fe2c55" /></div>
-      <div v-else-if="!list.length" class="empty">
+      <div v-else-if="!filteredList.length" class="empty">
         <van-icon name="comment-o" size="40" color="#333" />
         <p>暂无消息</p>
       </div>
@@ -217,7 +287,60 @@ onActivated(load)
 .mi-icon { width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; }
 .badge { position: absolute; top: -2px; right: -2px; background: #fff; color: #fe2c55; font-size: 10px; min-width: 16px; height: 16px; line-height: 16px; border-radius: 8px; padding: 0 4px; }
 .list-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; color: #888; font-size: 13px; background: #161616; }
+.list-head-right { display: flex; align-items: center; gap: 12px; }
 .filter-all { color: #fe2c55; }
+
+/* ===================== Feature: 日期筛选 (date range filter) =====================
+   A small inline dropdown trigger in the list header. The menu is a
+   position:absolute card anchored under the trigger; the overlay div closes it. */
+.date-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #25f4ee;
+  font-size: 12px;
+  padding: 3px 9px;
+  border: 1px solid rgba(37, 244, 238, 0.4);
+  border-radius: 12px;
+  background: rgba(37, 244, 238, 0.1);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.date-filter:active { background: rgba(37, 244, 238, 0.25); }
+.df-label { white-space: nowrap; }
+.date-filter-menu {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  background: rgba(0, 0, 0, 0.3);
+}
+.df-menu-inner {
+  position: absolute;
+  top: 92px;
+  right: 14px;
+  min-width: 120px;
+  background: #1c1c1c;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.df-opt {
+  padding: 11px 18px;
+  color: #ddd;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid #232323;
+  transition: background 0.15s;
+}
+.df-opt:last-child { border-bottom: none; }
+.df-opt:active { background: #262626; }
+.df-opt.active { color: #fe2c55; font-weight: 600; }
 .loading { text-align: center; padding: 40px; }
 .date-group { background: #000; }
 .date-head { color: #999; font-size: 12px; padding: 10px 16px 4px; background: #000; }

@@ -198,6 +198,57 @@ const recentVisitorAvatars = computed(() => {
 function showVisitors() {
   showToast('查看访客详情')
 }
+
+// ===================== Feature: Profile achievement badges (主页成就徽章) =====================
+// A horizontally scrollable row of achievement badges derived from the user's
+// stats. Each badge has a threshold; when the user meets it the badge is "lit"
+// (theme-colored + opaque) and shows the achievement label, otherwise it is
+// dimmed and shows the requirement as a hint. All 6 badges always render so the
+// row stays the same length; meeting a threshold just lights it up.
+//   🌟 人气之星  — followers >= 1000
+//   🎬 创作达人  — video count >= 10
+//   ❤️ 万赞成就  — total likes >= 10000
+//   🔥 活跃先锋  — level >= 10
+//   👑 超级网红  — followers >= 100000
+//   🏆 影响力奖  — followers × following >= 1000000 (reach)
+const BADGE_DEFS = [
+  { key: 'star',     icon: '🌟', name: '人气之星',  hint: '1000粉解锁' },
+  { key: 'creator',  icon: '🎬', name: '创作达人',  hint: '10作品解锁' },
+  { key: 'likes',    icon: '❤️', name: '万赞成就',  hint: '1万赞解锁' },
+  { key: 'active',   icon: '🔥', name: '活跃先锋',  hint: 'Lv10解锁' },
+  { key: 'king',     icon: '👑', name: '超级网红',  hint: '10万粉解锁' },
+  { key: 'influence',icon: '🏆', name: '影响力奖',  hint: '高影响解锁' },
+]
+
+// achievementBadges maps BADGE_DEFS to { def, unlocked, progress } for the
+// current user. `unlocked` drives the lit/dim styling; `progress` is the user's
+// current value for the matching metric (shown as a small caption).
+const achievementBadges = computed(() => {
+  const u = user.value || {}
+  const followers = u.followers_count || 0
+  const following = u.following_count || 0
+  const likes = u.likes_count || 0
+  const videoCount = videos.value.length
+  const level = u.level || 0
+  const metrics = {
+    star:      { unlocked: followers >= 1000,                progress: fmtCount(followers) + ' 粉丝' },
+    creator:   { unlocked: videoCount >= 10,                  progress: videoCount + ' 作品' },
+    likes:     { unlocked: likes >= 10000,                    progress: fmtCount(likes) + ' 获赞' },
+    active:    { unlocked: level >= 10,                       progress: 'Lv ' + level },
+    king:      { unlocked: followers >= 100000,               progress: fmtCount(followers) + ' 粉丝' },
+    influence: { unlocked: followers * following >= 1000000,  progress: fmtCount(followers * following) + ' 影响力' },
+  }
+  return BADGE_DEFS.map((def) => ({ def, ...metrics[def.key] }))
+})
+
+// unlockedCount sums how many badges the user has earned — shown as the row header.
+const unlockedCount = computed(() => achievementBadges.value.filter((b) => b.unlocked).length)
+
+// tapBadge surfaces a toast describing the badge's status (unlocked name or the
+// unlock requirement) so tapping gives feedback without navigating anywhere.
+function tapBadge(b) {
+  showToast(b.unlocked ? '已获得: ' + b.def.name : b.def.hint)
+}
 </script>
 
 <template>
@@ -313,6 +364,31 @@ function showVisitors() {
               :src="a"
             />
             <span class="vc-more">…</span>
+          </div>
+        </div>
+      </div>
+      <!-- ===================== Feature: Profile achievement badges (主页成就徽章) =====================
+           A horizontally scrollable row of 6 achievement badges. Unlocked badges
+           are lit (theme-colored); locked ones are dimmed with the requirement as a
+           hint. Tapping a badge toasts its status. -->
+      <div class="badge-card">
+        <div class="bc-head">
+          <span class="bc-title">🎖️ 成就徽章</span>
+          <span class="bc-count">已获得 {{ unlockedCount }}/{{ BADGE_DEFS.length }}</span>
+        </div>
+        <div class="badge-row">
+          <div
+            v-for="b in achievementBadges"
+            :key="b.def.key"
+            class="badge"
+            :class="{ locked: !b.unlocked }"
+            @click="tapBadge(b)"
+          >
+            <div class="badge-icon">{{ b.def.icon }}</div>
+            <div class="badge-name">{{ b.def.name }}</div>
+            <div class="badge-progress" :class="{ unlocked: b.unlocked }">
+              {{ b.unlocked ? b.progress : b.def.hint }}
+            </div>
           </div>
         </div>
       </div>
@@ -444,4 +520,69 @@ function showVisitors() {
   font-weight: bold;
   margin-left: 4px;
 }
+
+/* ===================== Feature: 主页成就徽章 (achievement badges) =====================
+   A card holding a horizontally scrollable row of 6 achievement badges.
+   Unlocked badges are theme-colored and opaque; locked ones are dimmed with the
+   unlock requirement as a hint. The row scrolls horizontally on overflow. */
+.badge-card {
+  background: #161616;
+  margin: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+}
+.bc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.bc-title { color: #fff; font-size: 14px; font-weight: bold; }
+.bc-count { color: #fe2c55; font-size: 12px; font-weight: 600; }
+.badge-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.badge-row::-webkit-scrollbar { display: none; }
+.badge {
+  flex: 0 0 auto;
+  width: 86px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px;
+  background: rgba(254, 44, 85, 0.12);
+  border: 1px solid rgba(254, 44, 85, 0.4);
+  border-radius: 12px;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.15s ease, background 0.15s, border-color 0.15s;
+}
+.badge:active { transform: scale(0.94); }
+/* Locked badges are dimmed and use a neutral border so they read as "not yet". */
+.badge.locked {
+  background: #1c1c1c;
+  border-color: #2a2a2a;
+  opacity: 0.6;
+}
+.badge-icon { font-size: 26px; line-height: 1; }
+.badge.locked .badge-icon { filter: grayscale(1); }
+.badge-name {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge-progress {
+  color: #fe2c55;
+  font-size: 10px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.badge.locked .badge-progress { color: #666; }
 </style>
