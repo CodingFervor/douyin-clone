@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onActivated, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showSuccessToast, showDialog } from 'vant'
-import { getFeed, getRecommendFeed, getFollowingFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment, reportVideo, dismissVideo, getSuggestFollows } from '../api'
+import { getFeed, getRecommendFeed, getFollowingFeed, recordPlay, toggleLike, toggleFavorite, toggleFollow, getComments, createComment, likeComment, reportVideo, dismissVideo, getSuggestFollows, getProfile } from '../api'
 import { playLike, playUnlike, playComment, playFollow } from '../utils/sound'
 
 const router = useRouter()
@@ -564,18 +564,120 @@ function dismissGuide() {
   }
 }
 
+// ===================== Feature: Feed vertical scroll hint (上滑提示) =====================
+// A small floating "👆上滑" chip shown once to first-time users with a bounce
+// animation. It is distinct from the full guide overlay (dy_guide_shown): this
+// is a lightweight persistent hint that only dismisses on the user's first
+// actual swipe. The dismissed state persists in localStorage 'dy_scroll_hint'.
+const SCROLL_HINT_KEY = 'dy_scroll_hint'
+const showScrollHint = ref(false)
+
+// loadScrollHint shows the hint on mount unless it has already been dismissed.
+function loadScrollHint() {
+  try {
+    if (localStorage.getItem(SCROLL_HINT_KEY) !== '1') {
+      showScrollHint.value = true
+    }
+  } catch (e) {
+    // localStorage unavailable — show by default.
+    showScrollHint.value = true
+  }
+}
+
+// dismissScrollHint hides the chip and persists the dismissed flag so it never
+// reappears for this user. Called on the first detected swipe.
+function dismissScrollHint() {
+  if (!showScrollHint.value) return
+  showScrollHint.value = false
+  try {
+    localStorage.setItem(SCROLL_HINT_KEY, '1')
+  } catch (e) {
+    // localStorage may be unavailable (private mode) — ignore.
+  }
+}
+
 // ===================== Feature: Pinned comment (评论置顶) =====================
 // Frontend-only: pin the video author's comment (user_id === author_id), or
 // failing that the most-liked top-level comment, to the top of the list with a
 // 置顶 badge. It is removed from the regular list to avoid duplication.
 // pinnedComment is the chosen comment (or null); regularComments is the
 // remaining list (excluding the pinned one), order preserved.
+//
+// ===================== Feature: Comment pin by creator (作者置顶评论) =====================
+// On top of the auto-pinning, if the *current* logged-in user is the video
+// author they see a "📌置顶" button on their own top-level comments. Tapping it
+// manually pins that comment; only one manual pin is allowed per video, so
+// pinning a new comment replaces the previous one. The manual pin is stored
+// per-video in localStorage 'dy_pin_<videoId>' and takes precedence over the
+// automatic pin. Clearing the pin removes the stored id.
+const PIN_PREFIX = 'dy_pin_'
+const manualPinId = ref(null) // comment id the author manually pinned for the open video
 const pinnedComment = ref(null)
 const regularComments = ref([])
 
+// The id of the currently logged-in user (resolved once from the profile API),
+// used to decide whether to show the "📌置顶" button on the author's own comments.
+const currentUserId = ref(null)
+
+// Returns true when the current user is the author of the active video — only
+// then do we render the pin buttons on their own comments.
+function canPinAsAuthor() {
+  const v = videos.value[index.value]
+  const authorId = v ? v.author_id : null
+  return authorId != null && currentUserId.value != null && String(currentUserId.value) === String(authorId)
+}
+
+// Whether a given comment belongs to the current user (so the pin button shows).
+function isOwnComment(c) {
+  return c && c.user_id != null && currentUserId.value != null && String(c.user_id) === String(currentUserId.value)
+}
+
+// Whether a given (own, top-level) comment is currently the manual pin.
+function isManualPin(c) {
+  return c && manualPinId.value != null && String(c.id) === String(manualPinId.value)
+}
+
+// pinComment stores the chosen comment as the manual pin for this video (one
+// only), re-renders the pinned section, and surfaces a toast.
+function pinComment(c) {
+  if (!canPinAsAuthor() || !isOwnComment(c)) return
+  // Child comments cannot be pinned.
+  if (c.parent_id && c.parent_id !== 0) { showToast('只能置顶顶级评论'); return }
+  manualPinId.value = c.id
+  const v = videos.value[index.value]
+  if (v) {
+    try { localStorage.setItem(PIN_PREFIX + v.id, String(c.id)) } catch (e) {}
+  }
+  showSuccessToast('已置顶评论')
+  recomputePinned()
+}
+
+// unpinComment clears the manual pin for this video.
+function unpinComment() {
+  manualPinId.value = null
+  const v = videos.value[index.value]
+  if (v) {
+    try { localStorage.removeItem(PIN_PREFIX + v.id) } catch (e) {}
+  }
+  showToast('已取消置顶')
+  recomputePinned()
+}
+
+// loadManualPin reads any saved manual pin for the open video. Called when the
+// comment popup opens for a video so the author's prior pin is restored.
+function loadManualPin() {
+  const v = videos.value[index.value]
+  if (!v) { manualPinId.value = null; return }
+  try {
+    manualPinId.value = localStorage.getItem(PIN_PREFIX + v.id) || null
+  } catch (e) {
+    manualPinId.value = null
+  }
+}
+
 // recomputePinned splits commentList into a pinned entry + the rest. The author's
-// own top-level comment wins; otherwise the top-level comment with the most
-// likes is pinned. Child comments (parent_id != 0) are never pinned.
+// manually-pinned comment wins; otherwise the author's own top-level comment; and
+// finally the top-level comment with the most likes. Child comments are never pinned.
 function recomputePinned() {
   const list = commentList.value || []
   const current = videos.value[index.value]
@@ -583,11 +685,16 @@ function recomputePinned() {
   const topLevel = list.filter((c) => !c.parent_id || c.parent_id === 0)
 
   let pinned = null
-  if (authorId != null) {
+  // 1) The author's manual pin takes precedence (if it still exists in the list).
+  if (manualPinId.value != null) {
+    pinned = list.find((c) => String(c.id) === String(manualPinId.value)) || null
+  }
+  // 2) Otherwise the author's own top-level comment.
+  if (!pinned && authorId != null) {
     pinned = topLevel.find((c) => c.user_id === authorId) || null
   }
+  // 3) Otherwise the most-liked top-level comment.
   if (!pinned && topLevel.length) {
-    // Most-liked top-level comment; ties broken by original order (stable find).
     let best = null
     for (const c of topLevel) {
       if (!best || (c.likes || 0) > (best.likes || 0)) best = c
@@ -688,12 +795,22 @@ watch(activeTab, (tab) => {
 onMounted(() => startFollowCheck())
 // Show the one-time swipe-up guide for new users once the feed mounts.
 onMounted(() => showSwipeGuide())
+// Feature: 上滑提示 — show the floating scroll hint to first-time users on mount.
+onMounted(() => loadScrollHint())
 // Restore the user's sound-effects preference on mount.
 onMounted(() => loadSoundPref())
 // Feature: 播放速度记忆 — restore the saved playback speed + toast on mount.
 onMounted(() => restorePlaybackSpeed())
 // Feature: 视频循环播放模式 — restore the saved loop-mode preference on mount.
 onMounted(() => loadLoopPref())
+// Feature: 作者置顶评论 — resolve the current user id once on mount so we can
+// show the pin button on the author's own comments.
+onMounted(() => {
+  if (!localStorage.getItem('dy_token')) return
+  getProfile()
+    .then((u) => { currentUserId.value = u && (u.id != null ? u.id : u.user_id) })
+    .catch(() => { /* not logged in or transient — pin buttons stay hidden */ })
+})
 // Feature: 策展模式 — restore the saved curator-mode preference on mount.
 onMounted(() => loadCuratorPref())
 // Feature: 评论时间戳 — refresh relative times every minute.
@@ -840,9 +957,13 @@ function onTouchEnd(e) {
   dragging.value = false
   const dy = e.changedTouches[0].clientY - startY.value
   if (dy < -50 && index.value < videos.value.length - 1) {
+    // Feature: 上滑提示 — the first real swipe dismisses the floating hint.
+    dismissScrollHint()
     index.value++
     playCurrent()
   } else if (dy > 50 && index.value > 0) {
+    // Feature: 上滑提示 — any swipe (including up-to-go-back) counts as dismissal.
+    dismissScrollHint()
     index.value--
     playCurrent()
   }
@@ -890,6 +1011,8 @@ async function openComments(v) {
   showComment.value = true
   // Feature: 评论草稿自动保存 — restore any saved draft for this video.
   restoreDraft()
+  // Feature: 作者置顶评论 — restore any saved manual pin for this video.
+  loadManualPin()
   try {
     commentList.value = await getComments(v.id)
   } catch (e) {
@@ -1822,6 +1945,16 @@ function relTime(createdAt) {
       <div class="guide-text-sub">双击点赞❤️</div>
     </div>
 
+    <!-- ===================== Feature: Feed vertical scroll hint (上滑提示) =====================
+         A lightweight floating "👆上滑" chip shown once to first-time users with a
+         bounce animation. Dismissed on the first actual swipe; tracked via
+         localStorage 'dy_scroll_hint'. Lower z-index than the guide overlay so the
+         full guide takes precedence if both are present. -->
+    <div v-if="showScrollHint" class="scroll-hint" @click.stop="dismissScrollHint">
+      <span class="sh-icon">👆</span>
+      <span class="sh-text">上滑</span>
+    </div>
+
     <!-- Comment popup -->
     <van-popup v-model:show="showComment" position="bottom" round :style="{ height: '50%' }">
       <div class="comment-panel">
@@ -1866,6 +1999,10 @@ function relTime(createdAt) {
                 <span class="cp-translate-btn" :class="{ active: isTranslated(pinnedComment.id) }" @click="toggleTranslate(pinnedComment)">🌐{{ isTranslated(pinnedComment.id) ? '取消翻译' : '翻译' }}</span>
               </div>
               <div class="cp-reply-btn" :class="{ active: replyTo && replyTo.id === pinnedComment.id }" @click="startReply(pinnedComment)">回复</div>
+              <!-- ===================== Feature: 作者置顶评论 (comment pin by creator) =====================
+                   If the current user is the video author and this pinned comment is
+                   their manual pin, show a "取消置顶" action to remove it. -->
+              <div v-if="canPinAsAuthor() && isManualPin(pinnedComment)" class="cp-pin-btn active" @click="unpinComment">📌 取消置顶</div>
               <div v-if="replyTo && replyTo.id === pinnedComment.id" class="cp-sub-input">
                 <van-field
                   v-model="replyText"
@@ -1928,6 +2065,15 @@ function relTime(createdAt) {
                 <span class="cp-translate-btn" :class="{ active: isTranslated(c.id) }" @click="toggleTranslate(c)">🌐{{ isTranslated(c.id) ? '取消翻译' : '翻译' }}</span>
               </div>
               <div class="cp-reply-btn" :class="{ active: replyTo && replyTo.id === c.id }" @click="startReply(c)">回复</div>
+              <!-- ===================== Feature: 作者置顶评论 (comment pin by creator) =====================
+                   When the current user is the video author, show a "📌置顶" button on
+                   their own top-level comments so they can pin one per video. The
+                   button is hidden on child comments (parent_id != 0). -->
+              <div
+                v-if="canPinAsAuthor() && isOwnComment(c) && !(c.parent_id && c.parent_id !== 0)"
+                class="cp-pin-btn"
+                @click="pinComment(c)"
+              >📌置顶</div>
               <!-- Inline sub-input shown when replying to this comment -->
               <div v-if="replyTo && replyTo.id === c.id" class="cp-sub-input">
                 <van-field
@@ -2355,6 +2501,25 @@ function relTime(createdAt) {
 .cp-content { color: #fff; font-size: 14px; margin-top: 3px; }
 .cp-reply-btn { color: #888; font-size: 12px; margin-top: 6px; display: inline-block; cursor: pointer; }
 .cp-reply-btn.active { color: #fe2c55; }
+/* ===================== Feature: 作者置顶评论 (comment pin by creator) =====================
+   A small "📌置顶" / "📌 取消置顶" action shown next to the reply button. The
+   inactive pin button uses a muted style; the active (cancel) state is themed. */
+.cp-pin-btn {
+  display: inline-block;
+  margin-top: 6px;
+  margin-left: 12px;
+  font-size: 12px;
+  color: #fe2c55;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 8px;
+  border: 1px solid rgba(254, 44, 85, 0.4);
+  border-radius: 10px;
+  background: rgba(254, 44, 85, 0.08);
+  transition: background 0.15s, border-color 0.15s;
+}
+.cp-pin-btn:active { background: rgba(254, 44, 85, 0.25); }
+.cp-pin-btn.active { background: rgba(254, 44, 85, 0.2); border-color: #fe2c55; font-weight: 600; }
 /* ===================== Feature: Comment translation indicator (评论翻译指示) =====================
    🌐翻译 button sits below the comment text; an active translation shows an
    "已翻译" tag and a "(translated)" marker appended to the text. While the
@@ -2688,6 +2853,42 @@ function relTime(createdAt) {
   45%  { transform: translateY(-32px) scale(1.05); opacity: 1; }
   60%  { transform: translateY(-32px) scale(1.05); opacity: 1; }
   100% { transform: translateY(0) scale(1); opacity: 0.85; }
+}
+
+/* ===================== Feature: Feed vertical scroll hint (上滑提示) =====================
+   A small floating chip near the bottom-center with a bounce animation. The
+   whole chip bounces upward repeatedly to suggest a swipe-up gesture; tapping it
+   also dismisses it. Lower z-index than the guide overlay so the full guide takes
+   precedence if both are present. */
+.scroll-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 150px;
+  transform: translateX(-50%);
+  z-index: 80;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  background: rgba(254, 44, 85, 0.9);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 20px;
+  box-shadow: 0 4px 18px rgba(254, 44, 85, 0.5);
+  cursor: pointer;
+  user-select: none;
+  animation: scrollHintBounce 1.2s ease-in-out infinite;
+}
+.scroll-hint:active { opacity: 0.8; }
+.sh-icon { font-size: 18px; line-height: 1; }
+.sh-text { letter-spacing: 1px; }
+/* The chip lifts up then settles, echoing the swipe-up gesture. */
+@keyframes scrollHintBounce {
+  0%   { transform: translate(-50%, 0); }
+  45%  { transform: translate(-50%, -14px); }
+  60%  { transform: translate(-50%, -14px); }
+  100% { transform: translate(-50%, 0); }
 }
 
 /* ===================== Feature: Pinned comment (评论置顶) ===================== */

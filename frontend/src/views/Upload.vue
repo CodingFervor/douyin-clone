@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { showToast, showSuccessToast } from 'vant'
 import { uploadVideo, uploadVideoFile, uploadImage } from '../api'
@@ -29,6 +29,111 @@ const initialMusic = route.query.music || '原声'
 // Pre-fill the tags field when arriving from 创作者中心 via the `tags` query param.
 const initialTags = route.query.tags || ''
 const form = ref({ title: '', description: '', video_url: '', cover_url: '', tags: initialTags, music: initialMusic, filter: 'none' })
+
+// ===================== Feature: Upload draft auto-save (草稿自动保存) =====================
+// The upload form is auto-saved to localStorage every 2s while the user is
+// typing, so an accidental refresh or navigation doesn't lose their work. The
+// text fields (title / description / tags / music / video_url / filter) are
+// saved; the selected file blob and uploaded cover image are not (they can't be
+// meaningfully serialized). On mount a saved draft is restored and a
+// "📝草稿已保存" indicator is shown after each auto-save. Submitting or explicitly
+// clearing clears the draft.
+const DRAFT_KEY = 'dy_upload_draft'
+const draftSaved = ref(false)    // true briefly after each auto-save
+const draftRestored = ref(false) // true once when a draft is restored on mount
+let draftTimer = null
+let draftFlashTimer = null
+
+// draftPayload returns the serializable subset of the form to persist.
+function draftPayload() {
+  const f = form.value
+  return {
+    title: f.title || '',
+    description: f.description || '',
+    video_url: f.video_url || '',
+    tags: f.tags || '',
+    music: f.music || '',
+    filter: f.filter || 'none',
+    mode: mode.value || 'file',
+  }
+}
+
+// saveDraft persists the current form to localStorage and flashes the indicator.
+function saveDraft() {
+  const payload = draftPayload()
+  // Don't save an empty draft — clear it instead so a fresh form stays fresh.
+  const hasContent = Object.values(payload).some((v) => typeof v === 'string' && v.trim() && v !== 'none' && v !== 'file')
+  try {
+    if (!hasContent) {
+      localStorage.removeItem(DRAFT_KEY)
+      draftSaved.value = false
+      return
+    }
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(payload))
+  } catch (e) {
+    // localStorage may be unavailable — ignore.
+  }
+  // Flash the "📝草稿已保存" indicator for 1.6s.
+  draftSaved.value = true
+  if (draftFlashTimer) clearTimeout(draftFlashTimer)
+  draftFlashTimer = setTimeout(() => { draftSaved.value = false }, 1600)
+}
+
+// scheduleDraftSave debounces the save by 2s after the last input, so we only
+// write once the user pauses typing.
+function scheduleDraftSave() {
+  if (draftTimer) clearTimeout(draftTimer)
+  draftTimer = setTimeout(() => {
+    draftTimer = null
+    saveDraft()
+  }, 2000)
+}
+
+// restoreDraft loads a saved draft into the form on mount (without overwriting
+// query-param pre-fills like music/tags that were just navigated to).
+function restoreDraft() {
+  let saved = null
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY)
+    saved = raw ? JSON.parse(raw) : null
+  } catch (e) {
+    saved = null
+  }
+  if (!saved) return
+  // Restore text fields; only overwrite query-param defaults when the draft has
+  // a value so navigating in from 音乐工作室 still pre-fills when the draft is empty.
+  if (saved.title) form.value.title = saved.title
+  if (saved.description) form.value.description = saved.description
+  if (saved.video_url) { form.value.video_url = saved.video_url; mode.value = 'url' }
+  if (saved.tags) form.value.tags = saved.tags
+  if (saved.music) form.value.music = saved.music
+  if (saved.filter) form.value.filter = saved.filter
+  if (saved.mode) mode.value = saved.mode
+  draftRestored.value = true
+  showToast('📝草稿已恢复')
+}
+
+// clearUploadDraft removes the saved draft (called after a successful publish).
+function clearUploadDraft() {
+  try { localStorage.removeItem(DRAFT_KEY) } catch (e) {}
+  draftSaved.value = false
+  if (draftTimer) { clearTimeout(draftTimer); draftTimer = null }
+}
+
+// Watch the form fields + mode and debounce-save on every change while typing.
+watch(
+  () => [form.value.title, form.value.description, form.value.video_url, form.value.tags, form.value.music, form.value.filter, mode.value],
+  () => { scheduleDraftSave() }
+)
+
+onMounted(() => {
+  restoreDraft()
+})
+
+onUnmounted(() => {
+  if (draftTimer) clearTimeout(draftTimer)
+  if (draftFlashTimer) clearTimeout(draftFlashTimer)
+})
 
 // ===================== Feature: 视频封面选择 (cover frame picker) =====================
 // After a video is chosen (file or URL), the user can scrub through a small
@@ -320,11 +425,15 @@ async function submit() {
       await uploadVideoFile(fd, (e) => {
         if (e.total) progress.value = Math.round((e.loaded / e.total) * 100)
       })
+      // Feature: 草稿自动保存 — clear the draft now that the upload succeeded.
+      clearUploadDraft()
       showSuccessToast('上传成功')
       router.push('/mine')
     } else {
       if (!form.value.video_url) { showToast('请输入视频地址'); uploading.value = false; return }
       await uploadVideo(form.value)
+      // Feature: 草稿自动保存 — clear the draft now that the publish succeeded.
+      clearUploadDraft()
       showSuccessToast('发布成功')
       router.push('/mine')
     }
@@ -438,6 +547,15 @@ async function submit() {
     </van-cell-group>
 
     <van-progress v-if="uploading" :percentage="progress" color="#fe2c55" style="margin: 12px 24px; width: calc(100% - 48px)" />
+    <!-- ===================== Feature: 草稿自动保存 (draft auto-save indicator) =====================
+         Flashes "📝草稿已保存" for ~1.6s after each debounced auto-save. Also shows a
+         steady "📝已恢复草稿" badge when a draft was restored on mount. -->
+    <div class="draft-indicator">
+      <transition name="draft-flash">
+        <span v-if="draftSaved" class="draft-saved">📝草稿已保存</span>
+      </transition>
+      <span v-if="draftRestored && !draftSaved" class="draft-restored">📝已恢复草稿</span>
+    </div>
     <!-- ===================== Feature: 发布增强 (预计处理时间) ===================== -->
     <div class="process-time"><van-icon name="clock-o" color="#25f4ee" size="14" /> 预计处理时间: ~3秒</div>
     <!-- ===================== Feature: 上传预览模式 (upload preview) =====================
@@ -694,6 +812,34 @@ async function submit() {
   display: flex; align-items: center; justify-content: center; gap: 6px;
   color: #25f4ee; font-size: 12px; margin-top: 4px;
 }
+
+/* ===================== Feature: 草稿自动保存 (draft auto-save indicator) =====================
+   A small centered indicator. "📝草稿已保存" flashes after each auto-save;
+   "📝已恢复草稿" shows steadily when a draft was restored on mount. */
+.draft-indicator {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 22px;
+  margin-top: 6px;
+}
+.draft-saved {
+  font-size: 12px;
+  color: #34c759;
+  background: rgba(52, 199, 89, 0.12);
+  padding: 3px 12px;
+  border-radius: 12px;
+}
+.draft-restored {
+  font-size: 12px;
+  color: #25f4ee;
+  background: rgba(37, 244, 238, 0.1);
+  padding: 3px 12px;
+  border-radius: 12px;
+}
+/* flash transition for the saved indicator */
+.draft-flash-enter-active, .draft-flash-leave-active { transition: opacity 0.25s ease; }
+.draft-flash-enter-from, .draft-flash-leave-to { opacity: 0; }
 /* expand/collapse transition for the tips list */
 .tips-slide-enter-active, .tips-slide-leave-active { transition: all 0.25s ease; overflow: hidden; }
 .tips-slide-enter-from, .tips-slide-leave-to { opacity: 0; max-height: 0; margin-top: 0; }

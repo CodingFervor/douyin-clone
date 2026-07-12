@@ -33,6 +33,8 @@ async function load() {
   try {
     counts.value = await getNotificationCounts()
     syncBadge()
+    // Feature: 消息通知音效 — beep if the toggle is on and new notifications arrived.
+    maybePlayNotifySound()
     await loadList(activeType.value)
   } catch (e) {
     // silent
@@ -189,6 +191,96 @@ function pickDateFilter(key) {
   }
 }
 
+// ===================== Feature: Notification sound (消息通知音效) =====================
+// A 🔔 toggle in the nav bar enables/disables a short beep (Web Audio API) that
+// plays when new notifications are detected on load. The preference persists in
+// localStorage 'dy_notify_sound' (default off, since autoplaying audio is
+// intrusive). We track the total unread count we've already seen so the beep
+// only fires when the count *increases*, not on the first load.
+const NOTIFY_SOUND_KEY = 'dy_notify_sound'
+const soundEnabled = ref(false)
+let lastSeenUnread = null    // total unread count we've already beeped for
+let audioCtx = null          // lazily-created Web Audio context
+
+function loadNotifySoundPref() {
+  try {
+    soundEnabled.value = localStorage.getItem(NOTIFY_SOUND_KEY) === '1'
+  } catch (e) {
+    soundEnabled.value = false
+  }
+}
+
+function toggleNotifySound() {
+  soundEnabled.value = !soundEnabled.value
+  try {
+    localStorage.setItem(NOTIFY_SOUND_KEY, soundEnabled.value ? '1' : '0')
+  } catch (e) {
+    // localStorage may be unavailable — ignore.
+  }
+  if (soundEnabled.value) {
+    // Play a sample beep immediately so the user knows what it sounds like, and
+    // to satisfy the user-gesture requirement for AudioContext creation.
+    playNotifyBeep()
+    showToast('已开启通知声音')
+  } else {
+    showToast('已关闭通知声音')
+  }
+}
+
+// playNotifyBeep plays a short two-tone ascending beep via the Web Audio API.
+// The AudioContext is created lazily on first use (and resumed if suspended).
+function playNotifyBeep() {
+  try {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext
+      if (!AC) return
+      audioCtx = new AC()
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume()
+    const now = audioCtx.currentTime
+    // Two short oscillator beeps (880Hz then 1320Hz) for a pleasant "ding-dong".
+    const tones = [{ f: 880, t: 0 }, { f: 1320, t: 0.12 }]
+    tones.forEach(({ f, t }) => {
+      const osc = audioCtx.createOscillator()
+      const gain = audioCtx.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = f
+      // Envelope: quick attack, gentle decay, no click.
+      gain.gain.setValueAtTime(0, now + t)
+      gain.gain.linearRampToValueAtTime(0.18, now + t + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.001, now + t + 0.22)
+      osc.connect(gain)
+      gain.connect(audioCtx.destination)
+      osc.start(now + t)
+      osc.stop(now + t + 0.24)
+    })
+  } catch (e) {
+    // Web Audio may be unavailable (e.g. older browsers) — fail silently.
+  }
+}
+
+// maybePlayNotifySound fires the beep if the toggle is on AND the total unread
+// count increased since the last check. On the very first load we just record
+// the baseline so we don't beep for already-existing notifications.
+function maybePlayNotifySound() {
+  if (!soundEnabled.value) {
+    lastSeenUnread = unreadTotal.value
+    return
+  }
+  const total = unreadTotal.value
+  if (lastSeenUnread === null) {
+    lastSeenUnread = total
+    return
+  }
+  if (total > lastSeenUnread) {
+    playNotifyBeep()
+  }
+  lastSeenUnread = total
+}
+
+// Restore the saved sound preference on mount, before the first load() runs.
+loadNotifySoundPref()
+
 onMounted(load)
 onActivated(load)
 </script>
@@ -197,6 +289,15 @@ onActivated(load)
   <div class="msg-page">
     <van-nav-bar title="消息">
       <template #right>
+        <!-- ===================== Feature: 消息通知音效 (notification sound) =====================
+             🔔 toggle enables/disables a Web Audio beep when new notifications load.
+             The preference persists in localStorage 'dy_notify_sound'. -->
+        <span
+          v-if="loggedIn"
+          class="notify-sound-btn"
+          :class="{ on: soundEnabled }"
+          @click="toggleNotifySound"
+        >{{ soundEnabled ? '🔔' : '🔕' }}</span>
         <span v-if="loggedIn" style="color: #fe2c55; font-size: 13px" @click="readAll">全部已读</span>
       </template>
     </van-nav-bar>
@@ -364,4 +465,30 @@ onActivated(load)
   transition: transform 0.15s ease;
 }
 .fab-read:active { transform: scale(0.92); }
+
+/* ===================== Feature: 消息通知音效 (notification sound) =====================
+   The 🔔/🔕 toggle in the nav bar. When on it takes the theme accent color and a
+   subtle pulse so the user can see at a glance that sound is enabled. */
+.notify-sound-btn {
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  margin-right: 14px;
+  filter: grayscale(0.6);
+  opacity: 0.7;
+  transition: opacity 0.15s, filter 0.15s;
+}
+.notify-sound-btn.on {
+  filter: none;
+  opacity: 1;
+  animation: notifyBellRing 1.8s ease-in-out infinite;
+}
+@keyframes notifyBellRing {
+  0%, 70%, 100% { transform: rotate(0); }
+  75% { transform: rotate(12deg); }
+  80% { transform: rotate(-10deg); }
+  85% { transform: rotate(6deg); }
+  90% { transform: rotate(-4deg); }
+}
 </style>

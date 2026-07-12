@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { showToast } from 'vant'
+import { showToast, showSuccessToast } from 'vant'
 import { getUser, getUserVideos, toggleFollow } from '../api'
 
 const route = useRoute()
@@ -9,6 +9,36 @@ const router = useRouter()
 const user = ref(null)
 const videos = ref([])
 const loading = ref(true)
+
+// ===================== Feature: Profile stats refresh button (刷新主页数据) =====================
+// A "🔄刷新" button re-fetches the user profile + videos. While fetching the
+// button shows a spin animation; on success a "已刷新" success toast is shown.
+// `refreshing` drives both the spinner and the button's disabled state.
+const refreshing = ref(false)
+
+// refreshUserData re-fetches the profile + videos and surfaces a "已刷新" toast.
+// It is independent of the initial `loading` flag so the page doesn't blank out
+// during a refresh — the existing content stays visible until the new data lands.
+async function refreshUserData() {
+  if (refreshing.value) return
+  refreshing.value = true
+  try {
+    // Fetch both in parallel for a snappier refresh.
+    const [u, vids] = await Promise.all([
+      getUser(route.params.id),
+      getUserVideos(route.params.id),
+    ])
+    user.value = u
+    videos.value = vids
+    showSuccessToast('已刷新')
+  } catch (e) {
+    showToast('刷新失败')
+  } finally {
+    // Keep the spin visible for a beat so the animation is perceptible even on a
+    // very fast network, then clear it.
+    setTimeout(() => { refreshing.value = false }, 400)
+  }
+}
 
 // ===================== Feature: 主页主题 (profile theme) =====================
 // Four selectable themes for the profile header background. The selection is
@@ -255,6 +285,17 @@ function tapBadge(b) {
   <div class="profile-page">
     <van-nav-bar left-arrow @click-left="router.back()" :placeholder="false" class="top-bar">
       <template #left><van-icon name="arrow-left" color="#fff" size="22" /></template>
+      <!-- ===================== Feature: 刷新主页数据 (profile stats refresh) =====================
+           🔄刷新 re-fetches the user data; the icon spins while loading and a "已刷新"
+           success toast confirms completion. -->
+      <template #right>
+        <span
+          v-if="!loading"
+          class="refresh-btn"
+          :class="{ spinning: refreshing }"
+          @click="refreshUserData"
+        >{{ refreshing ? '⏳' : '🔄刷新' }}</span>
+      </template>
     </van-nav-bar>
     <div v-if="loading" class="loading"><van-loading color="#fe2c55" /></div>
     <template v-else-if="user">
@@ -409,6 +450,33 @@ function tapBadge(b) {
 .profile-page { height: 100vh; overflow-y: auto; background: #000; }
 .top-bar { background: transparent !important; }
 .loading { text-align: center; padding: 80px; }
+
+/* ===================== Feature: 刷新主页数据 (profile stats refresh) =====================
+   The "🔄刷新" button in the nav bar. The 🔄 glyph spins continuously while a
+   refresh is in progress; the spinning class adds a full 360° rotation loop. */
+.refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: rgba(254, 44, 85, 0.18);
+  border: 1px solid rgba(254, 44, 85, 0.4);
+  transition: background 0.15s;
+}
+.refresh-btn:active { background: rgba(254, 44, 85, 0.35); }
+.refresh-btn.spinning {
+  animation: refreshSpin 0.9s linear infinite;
+  opacity: 0.85;
+  pointer-events: none;
+}
+@keyframes refreshSpin {
+  from { transform: rotate(0); }
+  to { transform: rotate(360deg); }
+}
 .head { position: relative; padding: 10px 20px 20px; background: #161616; text-align: center; transition: background-image 0.4s ease; }
 .head-themed { color: #fff; }
 .avatar { width: 80px; height: 80px; border-radius: 50%; margin: 0 auto; border: 2px solid rgba(255,255,255,0.4); }

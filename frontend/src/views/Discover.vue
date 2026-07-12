@@ -132,18 +132,31 @@ async function doSearch() {
   if (!kw) {
     // empty search restores the full list
     videos.value = allVideos.value
+    // Feature: 分类快捷筛选 — re-apply the active category after clearing the search.
+    applyCategoryFilter()
     return
   }
   searching.value = true
   try {
-    videos.value = await searchVideos(kw)
+    let results = await searchVideos(kw)
+    // Feature: 分类快捷筛选 — narrow the search results by the active category
+    // (unless 全部 is selected, which leaves the search results untouched).
+    if (activeCategory.value !== 'all') {
+      results = results.filter((v) => videoMatchesCategory(v, activeCategory.value))
+    }
+    videos.value = results
     // Each search feeds the hot-search ranking; refresh it.
     getHotSearch().then((data) => { hotList.value = data || [] }).catch(() => {})
   } catch (e) {
     // fall back to client-side filter if the search endpoint fails
-    videos.value = allVideos.value.filter((v) =>
+    let fallback = allVideos.value.filter((v) =>
       v.title.includes(kw) || (v.tags || '').includes(kw) || (v.author_name || '').includes(kw)
     )
+    // Feature: 分类快捷筛选 — apply the category to the client-side fallback too.
+    if (activeCategory.value !== 'all') {
+      fallback = fallback.filter((v) => videoMatchesCategory(v, activeCategory.value))
+    }
+    videos.value = fallback
   } finally {
     searching.value = false
   }
@@ -161,6 +174,64 @@ async function doSuggestFollow(u) {
 function fmtCount(n) {
   if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
   return String(n)
+}
+
+// ===================== Feature: Discover category quick filter (分类快捷筛选) =====================
+// A horizontal row of category chips (全部/搞笑/美食/旅行/舞蹈/萌宠) that filters
+// the video grid client-side by matching the video's tags field. Selecting 全部
+// removes the filter and shows every loaded video. The filter composes with the
+// search box: when a search is active (keyword set) the filter narrows the
+// already-searched list; otherwise it filters the full feed.
+//
+// We map each category label to a small set of synonymous tag keywords so a
+// video tagged "搞笑" or "段子" both match the 搞笑 chip, and so on. Matching is
+// case-insensitive and looks at the comma/space-separated tags field (and the
+// title as a fallback) so the filter is useful even when tags are sparse.
+const QUICK_CATEGORIES = [
+  { key: 'all', label: '全部', keywords: [] },
+  { key: 'funny', label: '搞笑', keywords: ['搞笑', '段子', '幽默', 'funny', '喜剧'] },
+  { key: 'food', label: '美食', keywords: ['美食', '探店', '吃货', 'food', '料理', '烹饪'] },
+  { key: 'travel', label: '旅行', keywords: ['旅行', '旅游', '风景', 'travel', '打卡', 'vlog'] },
+  { key: 'dance', label: '舞蹈', keywords: ['舞蹈', '跳舞', 'dance', '热舞', '编舞'] },
+  { key: 'pet', label: '萌宠', keywords: ['萌宠', '宠物', '猫', '狗', 'pet', 'cat', 'dog', '毛孩子'] },
+]
+const activeCategory = ref('all')
+
+// hasAnyKeyword returns true if the haystack contains any of the keywords (as
+// substrings, case-insensitive). Used to match a video's tags/title against the
+// active category's keyword set.
+function hasAnyKeyword(haystack, keywords) {
+  if (!keywords || !keywords.length) return true
+  const h = String(haystack || '').toLowerCase()
+  return keywords.some((k) => h.includes(String(k).toLowerCase()))
+}
+
+// videoMatchesCategory checks a video against the active category by scanning
+// its tags field (primary) and title (fallback).
+function videoMatchesCategory(v, catKey) {
+  const cat = QUICK_CATEGORIES.find((c) => c.key === catKey)
+  if (!cat || !cat.keywords.length) return true
+  const tagsField = String(v.tags || '') + ',' + String(v.title || '')
+  return hasAnyKeyword(tagsField, cat.keywords)
+}
+
+// pickCategory sets the active chip and re-applies the filter to the grid.
+function pickCategory(key) {
+  activeCategory.value = key
+  applyCategoryFilter()
+}
+
+// applyCategoryFilter recomputes the visible grid from the base list (the last
+// search result or the full feed) narrowed by the active category.
+function applyCategoryFilter() {
+  const base = keyword.value.trim() ? videos.value : allVideos.value
+  const cat = activeCategory.value
+  if (cat === 'all') {
+    // When no search is active either, show the full feed.
+    videos.value = keyword.value.trim() ? videos.value : allVideos.value.slice()
+    return
+  }
+  videos.value = base.filter((v) => videoMatchesCategory(v, cat))
 }
 
 // ===================== Feature: Discover trending topics pulse (发现页话题脉冲) =====================
@@ -239,6 +310,19 @@ const dailyPicks = computed(() => {
     <div class="greeting-banner" :class="greetingKey" :style="{ background: greeting.gradient }">
       <span class="gb-emoji">{{ greeting.emoji }}</span>
       <span class="gb-text">{{ greeting.text }}</span>
+    </div>
+
+    <!-- ===================== Feature: 分类快捷筛选 (category quick filter) =====================
+         A horizontally scrollable row of category chips. Selecting one filters the
+         video grid client-side by matching the video's tags; 全部 clears the filter. -->
+    <div class="quick-filter-row">
+      <span
+        v-for="c in QUICK_CATEGORIES"
+        :key="c.key"
+        class="qf-chip"
+        :class="{ active: activeCategory === c.key }"
+        @click="pickCategory(c.key)"
+      >{{ c.label }}</span>
     </div>
 
     <!-- ===================== Feature: 每日精选 (daily pick) =====================
@@ -364,6 +448,39 @@ const dailyPicks = computed(() => {
 <style scoped>
 .discover-page { height: 100vh; overflow-y: auto; background: #000; }
 .hot-tags { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+
+/* ===================== Feature: 分类快捷筛选 (category quick filter) =====================
+   A horizontally scrollable row of category chips. The active chip takes the
+   theme accent background; inactive chips use a muted dark style. */
+.quick-filter-row {
+  display: flex;
+  gap: 8px;
+  padding: 6px 12px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: #000;
+}
+.quick-filter-row::-webkit-scrollbar { display: none; }
+.qf-chip {
+  flex: 0 0 auto;
+  padding: 7px 16px;
+  font-size: 13px;
+  color: #fff;
+  background: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 16px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+.qf-chip:active { transform: scale(0.95); }
+.qf-chip.active {
+  background: #fe2c55;
+  border-color: #fe2c55;
+  font-weight: 600;
+  box-shadow: 0 2px 10px rgba(254, 44, 85, 0.4);
+}
 
 /* ===================== Feature: 发现页智能问候 (smart time greeting) =====================
    A time-aware banner. The gradient background is bound inline from the

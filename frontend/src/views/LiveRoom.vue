@@ -1004,6 +1004,53 @@ function tapQuality() {
   if (qualityTipTimer) clearTimeout(qualityTipTimer)
   qualityTipTimer = setTimeout(() => { showQualityTip.value = false }, 2000)
 }
+
+// ===================== Feature: Live room connection reconnect (重新连接) =====================
+// If the live stream video fails to load (the `error` event fires), a
+// "🔄重新连接" button appears. Tapping it shows a brief "正在重连..." state then
+// reloads the video element's source to retry. A short cooldown prevents the
+// reload from looping if the source is genuinely broken.
+const streamError = ref(false)       // true once the video fires onerror
+const reconnecting = ref(false)      // true while "正在重连..." shows (~600ms)
+const liveVideoRef = ref(null)       // the <video class="live-video"> element
+let lastReconnectAt = 0
+
+// onLiveError is bound to the video's @error. We only surface the reconnect UI
+// once the room data has loaded (loading=false) so the initial mount doesn't
+// flash it before the stream has a chance to start.
+function onLiveError() {
+  if (loading.value) return
+  streamError.value = true
+}
+
+// reconnectLive shows the "正在重连..." state briefly then reloads the video
+// element to retry the stream. A 3s cooldown between attempts avoids a tight
+// error→reload→error loop when the source is permanently broken.
+function reconnectLive() {
+  if (reconnecting.value) return
+  const now = Date.now()
+  if (now - lastReconnectAt < 3000) {
+    showToast('请稍候再试')
+    return
+  }
+  lastReconnectAt = now
+  reconnecting.value = true
+  // Give the "正在重连..." state a moment to be visible before reloading.
+  setTimeout(() => {
+    reconnecting.value = false
+    const v = liveVideoRef.value
+    if (!v) { streamError.value = false; return }
+    // Force the video element to re-fetch the source. Re-assigning the src
+    // (even to the same value) then calling load() restarts the connection.
+    const src = room.value && room.value.stream_url
+    if (src) {
+      v.src = src
+      v.load()
+      v.play().catch(() => { /* autoplay may be blocked; the error handler re-arms */ })
+    }
+    streamError.value = false
+  }, 600)
+}
 </script>
 
 <template>
@@ -1012,7 +1059,29 @@ function tapQuality() {
   </div>
   <div class="room-page" v-else-if="room" :style="{ background: themeBg }">
     <!-- HLS video player -->
-    <video class="live-video" :src="room.stream_url" autoplay muted loop playsinline></video>
+    <!-- ===================== Feature: 重新连接 (reconnect) =====================
+         @error surfaces the reconnect button if the stream fails to load. -->
+    <video
+      ref="liveVideoRef"
+      class="live-video"
+      :src="room.stream_url"
+      autoplay
+      muted
+      loop
+      playsinline
+      @error="onLiveError"
+    ></video>
+
+    <!-- ===================== Feature: 重新连接 (reconnect) =====================
+         Shown when the video failed to load (onerror). "正在重连..." appears for a
+         moment while the source reloads, then the button reverts. -->
+    <div v-if="streamError" class="reconnect-overlay">
+      <div class="rc-icon">🔄</div>
+      <div class="rc-text">直播连接失败</div>
+      <van-button round color="#fe2c55" class="rc-btn" :loading="reconnecting" @click="reconnectLive">
+        {{ reconnecting ? '正在重连...' : '🔄重新连接' }}
+      </van-button>
+    </div>
 
     <!-- Top bar -->
     <div class="top-bar">
@@ -2623,4 +2692,35 @@ function tapQuality() {
 .heat-meter.heat-warm .heat-tube { box-shadow: 0 0 10px rgba(255,149,0,0.5); }
 .heat-meter.heat-hot .heat-tube { box-shadow: 0 0 10px rgba(255,59,48,0.55); }
 .heat-meter.heat-boom .heat-tube { box-shadow: 0 0 12px rgba(156,39,176,0.6); }
+
+/* ===================== Feature: 重新连接 (reconnect overlay) =====================
+   A centered card shown over the video when the stream fails to load. A spinning
+   🔄 icon, a short message, and the reconnect button (which shows "正在重连..."
+   via Vant's loading state while the reload is in progress). */
+.reconnect-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 28px;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  backdrop-filter: blur(6px);
+  color: #fff;
+  text-align: center;
+}
+.rc-icon {
+  font-size: 42px;
+  line-height: 1;
+  animation: rcSpin 1.6s linear infinite;
+}
+@keyframes rcSpin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+.rc-text { font-size: 14px; color: rgba(255, 255, 255, 0.9); }
+.rc-btn { min-width: 150px; }
 </style>
