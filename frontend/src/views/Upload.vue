@@ -227,6 +227,67 @@ const shootingTips = [
   '💡 添加热门话题可获得更多推荐',
 ]
 
+// ===================== Feature: 文案模板 (caption template gallery) =====================
+// A "📋文案模板" button opens a gallery of 5 pre-made video templates covering
+// the common creator verticals (旅行日记/美食探店/日常分享/穿搭展示/技能教学).
+// Tapping a template pre-fills the title, tags, and description so the creator
+// can publish faster. The gallery is a bottom-sheet popup; selecting a template
+// closes the sheet and toasts a confirmation.
+const VIDEO_TEMPLATES = [
+  {
+    id: 'travel',
+    icon: '✈️',
+    name: '旅行日记',
+    title: '📍这趟旅程治愈了我｜绝美风景打卡',
+    tags: '旅行,风景,打卡,vlog',
+    description: '记录旅途中每一个心动瞬间，风景与人情都值得被珍藏。镜头里的远方，就是生活给我们的礼物🌍',
+  },
+  {
+    id: 'food',
+    icon: '🍜',
+    name: '美食探店',
+    title: '这家宝藏小店我吹爆！人均不到50吃到扶墙',
+    tags: '美食,探店,种草,隐藏菜单',
+    description: '深巷里的烟火气，藏在街角的宝藏美食。今天带大家打卡一家本地人才知道的神仙小店，必点菜单已整理，吃货们赶紧冲！',
+  },
+  {
+    id: 'daily',
+    icon: '☕',
+    name: '日常分享',
+    title: '普通一天的浪漫碎片🧩',
+    tags: '日常,生活,记录,治愈',
+    description: '把平凡的日子过成诗。一杯咖啡、一缕阳光、一段音乐，记录生活里那些微小却闪光的瞬间，温柔又治愈。',
+  },
+  {
+    id: 'ootd',
+    icon: '👗',
+    name: '穿搭展示',
+    title: '今日穿搭OOTD｜显瘦又显高的一套',
+    tags: '穿搭,ootd,时尚,显瘦',
+    description: '分享一套超百搭的日常穿搭，显瘦显高又舒适。详细单品信息在评论区，姐妹们可以根据自己的风格调整搭配哦✨',
+  },
+  {
+    id: 'skill',
+    icon: '🎓',
+    name: '技能教学',
+    title: '3分钟学会｜新手也能轻松上手',
+    tags: '教程,干货,技能,学习',
+    description: '干货预警！手把手教你掌握这项实用技能，从零基础到独立完成只需3分钟。建议收藏反复观看，有问题欢迎在评论区交流～',
+  },
+]
+const showTemplates = ref(false) // gallery popup visibility
+
+// applyTemplate pre-fills title + tags + description from the chosen template,
+// then closes the gallery and surfaces a toast. Existing field values are
+// overwritten so the template applies cleanly.
+function applyTemplate(t) {
+  form.value.title = t.title
+  form.value.tags = t.tags
+  form.value.description = t.description
+  showTemplates.value = false
+  showToast('已应用「' + t.name + '」模板')
+}
+
 function onFile(item) {
   // Revoke any previous object URL to avoid leaking blob URLs.
   if (pickerVideoRef.value && pickerVideoRef.value.startsWith('blob:')) {
@@ -352,6 +413,8 @@ async function submit() {
     <van-cell-group inset style="margin-top: 12px; background: #161616">
       <van-field v-model="form.title" label="标题" placeholder="给作品起个标题" label-width="80">
         <template #button>
+          <!-- Feature: 文案模板 — opens the pre-made template gallery. -->
+          <van-button size="small" round color="#25f4ee" @click="showTemplates = true">📋文案模板</van-button>
           <van-button size="small" round color="#fe2c55" @click="openAi">✨ AI文案</van-button>
         </template>
       </van-field>
@@ -400,6 +463,38 @@ async function submit() {
         </div>
         <div class="ai-footer">
           <van-button size="small" plain round color="#fe2c55" icon="replay" @click="reshuffleAi">换一批</van-button>
+        </div>
+      </div>
+    </van-popup>
+
+    <!-- ===================== Feature: 文案模板 (caption template gallery) =====================
+         A bottom-sheet gallery of 5 pre-made video templates. Each card shows the
+         template's icon, name, and a preview of the title/tags it will fill.
+         Tapping a card pre-fills title + tags + description and closes the sheet. -->
+    <van-popup v-model:show="showTemplates" round position="bottom" :style="{ background: '#161616' }">
+      <div class="tpl-wrap">
+        <div class="tpl-header">
+          <span class="tpl-title">📋 文案模板</span>
+          <span class="tpl-close" @click="showTemplates = false">✕</span>
+        </div>
+        <div class="tpl-sub">选择模板快速填充标题、话题和描述</div>
+        <div class="tpl-grid">
+          <div
+            v-for="t in VIDEO_TEMPLATES"
+            :key="t.id"
+            class="tpl-card"
+            @click="applyTemplate(t)"
+          >
+            <div class="tpl-card-head">
+              <span class="tpl-icon">{{ t.icon }}</span>
+              <span class="tpl-name">{{ t.name }}</span>
+            </div>
+            <div class="tpl-preview">{{ t.title }}</div>
+            <div class="tpl-tags">
+              <span v-for="tag in t.tags.split(',')" :key="tag" class="tpl-tag">#{{ tag }}</span>
+            </div>
+            <div class="tpl-use">使用模板 ›</div>
+          </div>
         </div>
       </div>
     </van-popup>
@@ -516,6 +611,70 @@ async function submit() {
 .ai-text { color: #fff; font-size: 14px; line-height: 20px; flex: 1; }
 .ai-use { color: #fe2c55; font-size: 12px; font-weight: bold; white-space: nowrap; }
 .ai-footer { display: flex; justify-content: center; margin-top: 18px; }
+
+/* ===================== Feature: 文案模板 (caption template gallery) =====================
+   A bottom-sheet gallery of pre-made video templates. Each template is a tappable
+   card showing its icon, name, a title preview, and its hashtags; selecting a
+   card fills title + tags + description. */
+.tpl-wrap { padding: 20px 16px 24px; }
+.tpl-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.tpl-title { color: #fff; font-size: 17px; font-weight: bold; }
+.tpl-close { color: #888; font-size: 18px; padding: 4px 8px; cursor: pointer; }
+.tpl-sub { color: #888; font-size: 12px; margin-bottom: 16px; }
+.tpl-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.tpl-card {
+  background: #222;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 14px;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.1s;
+}
+.tpl-card:active { transform: scale(0.98); }
+.tpl-card:hover { border-color: #25f4ee; }
+.tpl-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.tpl-icon { font-size: 20px; line-height: 1; }
+.tpl-name { color: #fff; font-size: 14px; font-weight: bold; }
+.tpl-preview {
+  color: #ccc;
+  font-size: 12px;
+  line-height: 17px;
+  margin-bottom: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tpl-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.tpl-tag {
+  color: #25f4ee;
+  font-size: 10px;
+  background: rgba(37, 244, 238, 0.1);
+  padding: 1px 6px;
+  border-radius: 8px;
+  line-height: 14px;
+}
+.tpl-use {
+  color: #fe2c55;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+}
 
 /* ===================== Feature: 发布增强 (upload tips) ===================== */
 .tips-card {

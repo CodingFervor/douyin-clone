@@ -141,6 +141,16 @@ const mentionLoaded = ref(false) // true once we've fetched suggestions once
 // video_url is unchanged — this is a visual/demo control.
 const quality = ref('sd')
 
+// ===================== Feature: Comment character limit (评论字数限制) =====================
+// Comments are capped at 200 characters. While typing we show a live
+// "X/200" counter; once the limit is exceeded the counter turns red and shows
+// "超出字数限制" with the current length, and the send button is disabled so an
+// over-limit comment can never be submitted. The threshold is shared by the
+// top-level comment input and the inline reply inputs.
+const COMMENT_MAX = 200
+const commentOverLimit = computed(() => commentText.value.length > COMMENT_MAX)
+const replyOverLimit = computed(() => replyText.value.length > COMMENT_MAX)
+
 // ===================== Feature: Video collection playlist (视频合集播放列表) =====================
 // A bottom-sheet popup that lists every loaded video as a sequential playlist.
 // Each row shows cover + title + duration, the current video is highlighted,
@@ -916,6 +926,8 @@ function appendEmoji(emoji) {
 }
 async function sendComment() {
   if (!commentText.value.trim()) return
+  // Feature: 评论字数限制 — block submission while over the 200-char cap.
+  if (commentOverLimit.value) { showToast('评论超出字数限制'); return }
   try {
     const cm = await createComment({ video_id: currentVideoId.value, content: commentText.value })
     commentList.value.unshift(cm)
@@ -935,6 +947,8 @@ async function sendComment() {
 // the backend stores it as a nested child comment.
 async function sendReply() {
   if (!replyText.value.trim() || !replyTo.value) return
+  // Feature: 评论字数限制 — block reply submission while over the cap.
+  if (replyOverLimit.value) { showToast('评论超出字数限制'); return }
   try {
     const cm = await createComment({
       video_id: currentVideoId.value,
@@ -1566,10 +1580,12 @@ function relTime(createdAt) {
       <van-icon name="search" class="search-btn" size="22" @click="router.push('/discover')" />
     </div>
 
-    <!-- ===================== Feature: Video thumbnail timeline (视频缩略图时间轴) =====================
-         A thin horizontal bar below the tabs. Each loaded video is a dot; the
-         current video's dot is enlarged + themed; watched videos (indices the
-         user has passed through) get a subtle fill. Clicking a dot jumps to it. -->
+    <!-- ===================== Feature: Feed mini progress dots (视频进度小圆点) =====================
+         Segmented dots (one per loaded video) replace the old thin top progress
+         bar. The current video's dot is enlarged and themed (#fe2c55); dots the
+         user has already passed through get a subtle fill; tapping any dot jumps
+         to that video. When 12 or fewer videos are loaded we overlay each dot's
+         cover thumbnail so the row doubles as a visual scrubber. -->
     <div v-if="!wallpaperMode && videos.length" class="video-timeline" :class="{ many: videos.length > 12 }">
       <span
         v-for="(v, i) in videos"
@@ -1977,6 +1993,14 @@ function relTime(createdAt) {
           <div class="cp-input-field-wrap">
             <!-- Feature: 评论草稿自动保存 — "草稿" badge shown while a saved draft exists -->
             <span v-if="hasDraft" class="cp-draft-badge">草稿</span>
+            <!-- ===================== Feature: 评论字数限制 (character limit) =====================
+                 Live counter on the right of the field. Turns red with "超出字数限制"
+                 once the 200-char cap is exceeded. -->
+            <span
+              v-if="commentText.length > 0"
+              class="cp-char-counter"
+              :class="{ over: commentOverLimit }"
+            >{{ commentOverLimit ? '超出字数限制 ' : '' }}{{ commentText.length }}/{{ COMMENT_MAX }}</span>
             <van-field
               v-model="commentText"
               placeholder="说点什么，用 @ 提及好友"
@@ -1986,7 +2010,13 @@ function relTime(createdAt) {
               @blur="() => setTimeout(closeMention, 150)"
             />
           </div>
-          <van-button size="small" type="primary" color="#fe2c55" @click="sendComment">发送</van-button>
+          <van-button
+            size="small"
+            type="primary"
+            color="#fe2c55"
+            :disabled="commentOverLimit"
+            @click="sendComment"
+          >发送</van-button>
         </div>
         <!-- @mention suggestion popup (评论区at提及) -->
         <div v-if="mentionMode" class="mention-popup">
@@ -2987,6 +3017,31 @@ function relTime(createdAt) {
   padding: 1px 7px;
   border-radius: 8px;
   pointer-events: none;
+}
+
+/* ===================== Feature: Comment character limit (评论字数限制) =====================
+   A small live "X/200" counter pinned to the right of the comment field. It
+   turns red and shows "超出字数限制" once the 200-char cap is exceeded. */
+.cp-char-counter {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  z-index: 4;
+  font-size: 10px;
+  font-weight: 600;
+  color: #888;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1px 7px;
+  border-radius: 8px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cp-char-counter.over {
+  color: #ff4d4f;
+  background: rgba(255, 77, 79, 0.15);
+  border: 1px solid rgba(255, 77, 79, 0.6);
 }
 
 /* ===================== Feature: 策展模式 (curator mode) ===================== */

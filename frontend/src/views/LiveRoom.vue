@@ -169,6 +169,9 @@ onMounted(async () => {
     loadContributors()
     computeHeat()
   }, 10000)
+  // Feature: 直播声音波形 — start the 200ms audio-visualizer tick.
+  tickAudioBars()
+  audioBarTimer = setInterval(tickAudioBars, 200)
 })
 
 onUnmounted(() => {
@@ -184,6 +187,8 @@ onUnmounted(() => {
   if (heatTimer) { clearInterval(heatTimer); heatTimer = null }
   // Feature: 直播间网络质量 — clear the tooltip auto-hide timer.
   if (qualityTipTimer) { clearTimeout(qualityTipTimer); qualityTipTimer = null }
+  // Feature: 直播声音波形 — clear the 200ms audio-visualizer tick.
+  if (audioBarTimer) { clearInterval(audioBarTimer); audioBarTimer = null }
 })
 
 async function pollMessages() {
@@ -946,6 +951,20 @@ function heatFillPct() {
   return Math.max(4, Math.min(100, pct))
 }
 
+// ===================== Feature: Live room sound visualizer (直播声音波形) =====================
+// Five animated bars next to the host info that simulate the host's audio
+// levels. The heights are randomized every 200ms to look like a live waveform.
+// We store a per-bar height value (in px) and update them on an interval; the
+// CSS transition on each bar smooths the changes so the bars bounce naturally.
+const audioBars = ref([8, 14, 10, 16, 12])   // current heights of the 5 bars (px)
+const AUDIO_BAR_MAX = 22                      // max bar height (px)
+let audioBarTimer = null                      // 200ms interval that re-randomizes heights
+
+// tickAudioBars re-randomizes the 5 bar heights so the visualizer looks alive.
+function tickAudioBars() {
+  audioBars.value = audioBars.value.map(() => 4 + Math.floor(Math.random() * (AUDIO_BAR_MAX - 3)))
+}
+
 // ===================== Feature: Live room connection quality (直播间网络质量) =====================
 // A signal-bars icon (4 bars) in the top-right corner. The quality level is
 // derived deterministically from a hash of the room id, so the same room always
@@ -1004,6 +1023,17 @@ function tapQuality() {
         <div>
           <div class="host-name">{{ room.host_name }}</div>
           <div class="host-viewers">{{ fmt(room.viewers) }}观看</div>
+        </div>
+        <!-- ===================== Feature: 直播声音波形 (sound visualizer) =====================
+             Five animated bars next to the host info that simulate the host's audio
+             levels. Heights are randomized every 200ms and smoothed by CSS transition. -->
+        <div class="audio-viz" :style="{ '--viz-color': themeAccent }">
+          <span
+            v-for="(h, i) in audioBars"
+            :key="i"
+            class="av-bar"
+            :style="{ height: h + 'px' }"
+          ></span>
         </div>
         <van-icon name="arrow-down" size="12" color="rgba(255,255,255,0.7)" class="host-arrow" />
       </div>
@@ -1591,6 +1621,33 @@ function tapQuality() {
 .host-avatar { width: 36px; height: 36px; border-radius: 50%; border: 2px solid #fe2c55; }
 .host-name { color: #fff; font-size: 14px; font-weight: bold; }
 .host-viewers { color: rgba(255,255,255,0.7); font-size: 11px; }
+
+/* ===================== Feature: 直播声音波形 (sound visualizer) =====================
+   Five vertical bars rendered next to the host info in the top bar. Each bar's
+   height is driven by the audioBars ref (re-randomized every 200ms); the CSS
+   transition smooths the changes so the bars bounce like a live waveform. The
+   bar color follows the room's theme accent (default #fe2c55). */
+.audio-viz {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 22px;
+  margin-left: 2px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  flex-shrink: 0;
+}
+.av-bar {
+  display: block;
+  width: 3px;
+  min-height: 4px;
+  border-radius: 2px;
+  background: var(--viz-color, #fe2c55);
+  /* Smooth the 200ms height updates so the bars bounce rather than snap. */
+  transition: height 0.2s ease;
+  opacity: 0.95;
+}
 
 /* ===================== Feature: 直播间网络质量 (connection quality) =====================
    A 4-bar signal icon fixed in the top-right corner. Each lit bar is colored by
